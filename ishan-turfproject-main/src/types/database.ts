@@ -1,0 +1,108 @@
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+// Generic types for flexibility
+export interface BaseEntity {
+  id: string
+  created_at: string
+  updated_at?: string
+}
+
+export interface Booking extends BaseEntity {
+  customer_name: string
+  mobile_number: string
+  area: string
+  booking_date: string
+  booking_time: string
+  sport: string
+  amount: number
+  payment_status: 'paid' | 'pending'
+  booking_status?: 'confirmed' | 'cancelled' | 'completed' | 'pending'
+  customer_email?: string | null
+  duration_minutes?: number | null
+  transaction_id?: string | null
+  source?: 'admin' | 'website' | string | null
+  notes: string | null
+  user_id: string
+}
+
+export interface Customer extends BaseEntity {
+  name: string
+  phone: string
+  area: string
+  total_bookings: number
+  total_spent: number
+  last_booking_date: string | null
+  user_id: string
+}
+
+export interface Expense extends BaseEntity {
+  date: string
+  title: string
+  description: string | null
+  amount: number
+  category: string
+  user_id: string
+}
+
+export interface Labour extends BaseEntity {
+  name: string
+  phone: string
+  role: string
+  user_id: string
+}
+
+export interface LabourPayment extends BaseEntity {
+  labour_id: string
+  date: string
+  amount: number
+  remarks: string | null
+  user_id: string
+}
+
+export interface Liability extends BaseEntity {
+  person_name: string
+  original_amount: number
+  outstanding_amount: number
+  description: string | null
+  is_completed: boolean
+  user_id: string
+}
+
+export interface LiabilityPayment extends BaseEntity {
+  liability_id: string
+  amount: number
+  date: string
+  user_id: string
+}
+
+export interface MarketingCampaign extends BaseEntity {
+  title: string
+  message: string
+  campaign_type: 'seasonal' | 'festival' | 'tournament' | 'membership' | 'custom'
+  sent_at: string | null
+  recipient_count: number
+  user_id: string
+}
+
+export interface Slot extends BaseEntity {
+  time: string
+  duration_minutes: number
+  price: number
+  is_active: boolean
+  user_id: string
+}
+
+export interface User extends BaseEntity {
+  email: string
+  full_name: string | null
+  avatar_url: string | null
+}
+
+export type PaymentStatus = 'paid' | 'pending'
+export type CampaignType = 'seasonal' | 'festival' | 'tournament' | 'membership' | 'custom'

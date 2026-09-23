@@ -277,6 +277,46 @@ export function useInventorySales(date?: string) {
   })
 }
 
+export function useAllInventorySales(startDate?: string, endDate?: string) {
+  const { user } = useAuth()
+
+  return useQuery({
+    queryKey: ['inventory-sales-all', user?.id, startDate, endDate],
+    queryFn: async (): Promise<InventorySale[]> => {
+      if (user) {
+        try {
+          let query = supabase
+            .from('inventory_sales')
+            .select('*')
+            .eq('user_id', user.id)
+
+          if (startDate && endDate) {
+            query = query.gte('date', startDate).lte('date', endDate)
+          } else if (startDate) {
+            query = query.gte('date', startDate)
+          } else if (endDate) {
+            query = query.lte('date', endDate)
+          }
+
+          const { data, error } = await query.order('created_at', { ascending: false })
+          if (!error && data) return data as InventorySale[]
+        } catch (e) {
+          console.warn('Supabase range sales fetch failed, using local fallback', e)
+        }
+      }
+
+      const local = getLocalSales()
+      return local.filter(s => {
+        if (startDate && endDate) return s.date >= startDate && s.date <= endDate
+        if (startDate) return s.date >= startDate
+        if (endDate) return s.date <= endDate
+        return true
+      })
+    },
+    enabled: true
+  })
+}
+
 export function useSyncBookingInventorySales() {
   const { user } = useAuth()
   const queryClient = useQueryClient()

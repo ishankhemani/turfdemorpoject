@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 import { PageLoadingState } from '@/components/common/loading'
-import { Download, Calendar, IndianRupee, Users, TrendingUp, Search } from 'lucide-react'
+import { Download, Calendar, IndianRupee, Users, TrendingUp, Wallet, Clock } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 export function ReportsPage() {
@@ -31,6 +32,32 @@ export function ReportsPage() {
     return <PageLoadingState />
   }
 
+  // ---- Revenue breakdown calculations ----
+  const paidBookings = (bookings || []).filter((b) => b.payment_status === 'paid')
+  const pendingBookings = (bookings || []).filter((b) => b.payment_status === 'pending')
+
+  let onlineRevenue = 0
+  let offlineRevenue = 0
+  paidBookings.forEach((b) => {
+    const mode = b.payment_mode || (b.transaction_id || b.source === 'website' ? 'online' : 'offline')
+    const amt = Number(b.amount || 0)
+    if (mode === 'split') {
+      let onAmt = Number(b.online_amount || 0)
+      let offAmt = Number(b.offline_amount || 0)
+      if (onAmt === 0 && offAmt === 0) {
+        onAmt = Math.floor(amt / 2)
+        offAmt = amt - onAmt
+      }
+      onlineRevenue += onAmt
+      offlineRevenue += offAmt
+    } else if (mode === 'online') {
+      onlineRevenue += amt
+    } else {
+      offlineRevenue += amt
+    }
+  })
+
+  const pendingAmount = pendingBookings.reduce((s, b) => s + Number(b.amount || 0), 0)
   const generateReport = () => {
     const totalRevenue = (monthlyData || []).reduce((sum, month) => sum + month.revenue, 0)
     const operatingOut = (monthlyData || []).reduce((sum, month) => sum + month.expenses, 0)
@@ -70,9 +97,16 @@ export function ReportsPage() {
     .brand { font-size: 24px; font-weight: 800; color: #0f766e; letter-spacing: -0.04em; }
     .muted { color: #64748b; font-size: 12px; }
     .grid { display:grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0; }
+    .grid6 { display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0; }
     .card { border:1px solid #dbe4e7; border-radius: 16px; padding: 14px; background: #f8fafc; }
+    .card.online { border-color: #bfdbfe; background: #eff6ff; }
+    .card.offline { border-color: #fde68a; background: #fffbeb; }
+    .card.pending { border-color: #fca5a5; background: #fef2f2; }
     .label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color:#64748b; }
     .value { font-size: 18px; font-weight: 800; margin-top: 6px; }
+    .value.blue { color: #1d4ed8; }
+    .value.amber { color: #d97706; }
+    .value.red { color: #dc2626; }
     h2 { font-size: 15px; margin-top: 24px; color:#0f172a; }
     table { width:100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
     th { text-align:left; background:#0f766e; color:#fff; padding:10px; }
@@ -90,16 +124,23 @@ export function ReportsPage() {
     <div class="muted">Production financial summary</div>
   </div>
   <div class="grid">
-    <div class="card"><div class="label">Revenue</div><div class="value">${formatCurrency(totalRevenue)}</div></div>
+    <div class="card"><div class="label">Total Revenue (Paid)</div><div class="value">${formatCurrency(totalRevenue)}</div></div>
     <div class="card"><div class="label">Money Out</div><div class="value">${formatCurrency(operatingOut)}</div></div>
-    <div class="card"><div class="label">Profit</div><div class="value">${formatCurrency(totalProfit)}</div></div>
-    <div class="card"><div class="label">Bookings</div><div class="value">${(bookings || []).length}</div></div>
+    <div class="card"><div class="label">Net Profit</div><div class="value">${formatCurrency(totalProfit)}</div></div>
+    <div class="card"><div class="label">Total Bookings</div><div class="value">${(bookings || []).length}</div></div>
+  </div>
+  <div class="grid6">
+    <div class="card online"><div class="label">Online Revenue (UPI/Card)</div><div class="value blue">${formatCurrency(onlineRevenue)}</div></div>
+    <div class="card offline"><div class="label">Cash / Offline Revenue</div><div class="value amber">${formatCurrency(offlineRevenue)}</div></div>
+    <div class="card pending"><div class="label">Pending (Unpaid)</div><div class="value red">${formatCurrency(pendingBookingAmount)}</div></div>
   </div>
   <h2>Business Summary</h2>
   <table>
     <tr><th>Metric</th><th>Value</th></tr>
     <tr><td>Paid Bookings</td><td>${(bookings || []).filter((booking) => booking.payment_status === 'paid').length}</td></tr>
-    <tr><td>Pending Booking Payments</td><td>${formatCurrency(pendingBookingAmount)}</td></tr>
+    <tr><td>Pending Bookings (Unpaid Amount)</td><td>${formatCurrency(pendingBookingAmount)}</td></tr>
+    <tr><td>Online Revenue (UPI/Card)</td><td>${formatCurrency(onlineRevenue)}</td></tr>
+    <tr><td>Cash / Offline Revenue</td><td>${formatCurrency(offlineRevenue)}</td></tr>
     <tr><td>Total Customers</td><td>${(customers || []).length}</td></tr>
     <tr><td>General Expenses</td><td>${formatCurrency(generalExpenses)}</td></tr>
     <tr><td>Labour Paid</td><td>${formatCurrency(labourPayments)}</td></tr>
@@ -112,7 +153,7 @@ export function ReportsPage() {
   <h2>Monthly Financial Table</h2>
   <table><thead><tr><th>Month</th><th>Revenue</th><th>Expenses + Labour</th><th>Profit</th></tr></thead><tbody>${monthlyRows}</tbody></table>
 
-  <div class="note">Profit formula used: paid bookings + other income - expenses - labour.</div>
+  <div class="note">Revenue = PAID bookings only. Pending bookings are shown separately and NOT included in revenue.</div>
   <div class="footer">Formatted for A4 PDF export. Use browser print options.</div>
   <script>window.onload = () => { window.print(); };</script>
 </body>
@@ -124,7 +165,6 @@ export function ReportsPage() {
   const totalExpenses = (monthlyData || []).reduce((sum, m) => sum + m.expenses, 0)
   const labourPayments = (labour || []).reduce((sum, l) => sum + (l.payments || []).reduce((s, p) => s + Number(p.amount), 0), 0)
   const outstandingLiabilities = (liabilities || []).filter((l) => !l.is_completed).reduce((s, l) => s + Number(l.outstanding_amount), 0)
-
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -172,53 +212,99 @@ export function ReportsPage() {
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Card className="bg-slate-900/80 border-slate-800">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-400">
-                <TrendingUp className="h-6 w-6" />
+          <CardContent className="p-4 sm:p-6">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-400 shrink-0">
+                <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
-              <div>
-                <p className="text-xs text-slate-400">Total Revenue</p>
-                <p className="text-2xl font-bold text-white">{formatCurrency(totalRevenue)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-slate-900/80 border-slate-800">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-red-950/80 border border-red-800 text-red-400">
-                <IndianRupee className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Total Expenses</p>
-                <p className="text-2xl font-bold text-white">{formatCurrency(totalExpenses + labourPayments)}</p>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-400">Paid Revenue</p>
+                <p className="text-lg sm:text-2xl font-bold text-white truncate">{formatCurrency(totalRevenue)}</p>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card className="bg-slate-900/80 border-slate-800">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-950/80 border border-blue-800 text-blue-400">
-                <Users className="h-6 w-6" />
+          <CardContent className="p-4 sm:p-6">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-xl bg-red-950/80 border border-red-800 text-red-400 shrink-0">
+                <IndianRupee className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
-              <div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-400">Expenses</p>
+                <p className="text-lg sm:text-2xl font-bold text-white truncate">{formatCurrency(totalExpenses + labourPayments)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-900/80 border-slate-800">
+          <CardContent className="p-4 sm:p-6">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-xl bg-blue-950/80 border border-blue-800 text-blue-400 shrink-0">
+                <Users className="h-5 w-5 sm:h-6 sm:w-6" />
+              </div>
+              <div className="min-w-0">
                 <p className="text-xs text-slate-400">Total Customers</p>
-                <p className="text-2xl font-bold text-white">{(customers || []).length}</p>
+                <p className="text-lg sm:text-2xl font-bold text-white">{(customers || []).length}</p>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card className="bg-slate-900/80 border-slate-800">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-950/80 border border-amber-800 text-amber-400">
-                <Calendar className="h-6 w-6" />
+          <CardContent className="p-4 sm:p-6">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-xl bg-amber-950/80 border border-amber-800 text-amber-400 shrink-0">
+                <Calendar className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs text-slate-400">Total Bookings</p>
-                <p className="text-2xl font-bold text-white">{(bookings || []).length}</p>
+                <p className="text-lg sm:text-2xl font-bold text-white">{(bookings || []).length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Payment Mode Breakdown */}
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
+        <Card className="bg-slate-900/80 border-blue-900/40">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-950/80 border border-blue-800 text-blue-400 shrink-0">
+                <TrendingUp className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-400">Online Revenue (UPI/Card)</p>
+                <p className="text-xl font-bold text-blue-400 truncate">{formatCurrency(onlineRevenue)}</p>
+                <p className="text-[10px] text-slate-500">Paid via digital</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-900/80 border-amber-900/40">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-950/80 border border-amber-800 text-amber-400 shrink-0">
+                <Wallet className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-400">Cash / Offline Revenue</p>
+                <p className="text-xl font-bold text-amber-400 truncate">{formatCurrency(offlineRevenue)}</p>
+                <p className="text-[10px] text-slate-500">Paid in cash</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-900/80 border-red-900/40">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-950/80 border border-red-800 text-red-400 shrink-0">
+                <Clock className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-400">Pending (Unpaid)</p>
+                <p className="text-xl font-bold text-red-400 truncate">{formatCurrency(pendingAmount)}</p>
+                <p className="text-[10px] text-slate-500">{pendingBookings.length} booking(s) unpaid</p>
               </div>
             </div>
           </CardContent>

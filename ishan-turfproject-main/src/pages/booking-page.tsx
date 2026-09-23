@@ -512,26 +512,26 @@ export function BookingPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-4 max-w-7xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-2">
-            <Calendar className="w-8 h-8 text-emerald-400" /> Ground Bookings
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white flex items-center gap-2">
+            <Calendar className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-400" /> Ground Bookings
           </h1>
-          <p className="text-slate-400 text-sm">Create and manage bookings, add-on drinks, and payment status.</p>
+          <p className="text-slate-400 text-xs sm:text-sm">Create and manage bookings, add-on drinks, and payment status.</p>
         </div>
-        <Button onClick={handleOpenNewDialog} className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold">
+        <Button onClick={handleOpenNewDialog} className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold w-full sm:w-auto">
           <Plus className="mr-2 h-4 w-4" /> New Booking
         </Button>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6">
-        {/* Date Selector Sidebar */}
-        <Card className="lg:w-80 flex-shrink-0 bg-slate-900/80 border-slate-800 shadow-xl">
-          <CardHeader className="pb-3 border-b border-slate-800">
-            <CardTitle className="text-base text-white">Select Date</CardTitle>
+      {/* Mobile: Horizontal date strip. Desktop: Sidebar */}
+      <div className="flex flex-col lg:flex-row gap-4">
+        <Card className="lg:w-72 xl:w-80 flex-shrink-0 bg-slate-900/80 border-slate-800 shadow-xl">
+          <CardHeader className="pb-2 pt-3 px-4 border-b border-slate-800">
+            <CardTitle className="text-sm text-white">Select Date</CardTitle>
           </CardHeader>
-          <CardContent className="pt-4 space-y-4">
+          <CardContent className="pt-3 pb-3 px-4 space-y-3">
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -541,7 +541,7 @@ export function BookingPage() {
                   d.setDate(d.getDate() - 1)
                   setSelectedDate(d.toISOString().split('T')[0])
                 }}
-                className="border-slate-700 text-slate-300"
+                className="border-slate-700 text-slate-300 h-8 w-8"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -550,7 +550,7 @@ export function BookingPage() {
                   type="date"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  className="bg-slate-950/70 border-slate-700 text-white"
+                  className="bg-slate-950/70 border-slate-700 text-white text-sm h-8"
                 />
               </div>
               <Button
@@ -561,7 +561,7 @@ export function BookingPage() {
                   d.setDate(d.getDate() + 1)
                   setSelectedDate(d.toISOString().split('T')[0])
                 }}
-                className="border-slate-700 text-slate-300"
+                className="border-slate-700 text-slate-300 h-8 w-8"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -570,21 +570,21 @@ export function BookingPage() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
-                placeholder="Search by customer/phone..."
+                placeholder="Search customer/phone..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 bg-slate-950/70 border-slate-700 text-white"
+                className="pl-9 bg-slate-950/70 border-slate-700 text-white text-sm h-8"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-center pt-2">
-              <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/40">
-                <p className="text-2xl font-bold text-emerald-400">{dateBookings.filter((b) => b.payment_status === 'paid').length}</p>
-                <p className="text-xs text-slate-400">Paid Bookings</p>
+            <div className="grid grid-cols-2 gap-2 text-center">
+              <div className="p-2 rounded-xl bg-emerald-950/40 border border-emerald-800/40">
+                <p className="text-xl font-bold text-emerald-400">{dateBookings.filter((b) => b.payment_status === 'paid').length}</p>
+                <p className="text-[10px] text-slate-400">Paid</p>
               </div>
-              <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-800/40">
-                <p className="text-2xl font-bold text-amber-400">{dateBookings.filter((b) => b.payment_status === 'pending').length}</p>
-                <p className="text-xs text-slate-400">Pending</p>
+              <div className="p-2 rounded-xl bg-amber-950/40 border border-amber-800/40">
+                <p className="text-xl font-bold text-amber-400">{dateBookings.filter((b) => b.payment_status === 'pending').length}</p>
+                <p className="text-[10px] text-slate-400">Pending</p>
               </div>
             </div>
           </CardContent>
@@ -604,103 +604,126 @@ export function BookingPage() {
 
             <TabsContent value="timeline">
               <Card className="bg-slate-900/80 border-slate-800 shadow-xl">
-                <CardContent className="p-6">
-                  <ScrollArea className="h-[600px] pr-4">
-                    <div className="space-y-3">
+                <CardContent className="p-3 sm:p-6">
+                  <ScrollArea className="h-[500px] sm:h-[600px] pr-2 sm:pr-4">
+                    <div className="space-y-2">
                       {SLOT_CHOICES.map((slotTime) => {
-                        const booking = dateBookings.find((b) => {
+                        const slotMinutes = parseTimeToMinutes(slotTime)
+
+                        // Find a booking that STARTS at this slot (to display booking details)
+                        const startingBooking = dateBookings.find((b) => {
                           if (b.start_time) return b.start_time === slotTime
                           return (b.booking_time || '').startsWith(slotTime)
                         })
+
+                        // Check if this slot is COVERED by any booking (not necessarily the start)
+                        const coveringBooking = !startingBooking
+                          ? dateBookings.find((b) => {
+                              const interval = extractTimeInterval(b)
+                              return slotMinutes >= interval.start && slotMinutes < interval.end
+                            })
+                          : null
+
+                        const isUnavailable = !startingBooking && !!coveringBooking
 
                         return (
                           <div
                             key={slotTime}
                             className={cn(
-                              'flex items-center gap-4 p-3 rounded-xl border transition-all',
-                              booking
+                              'flex items-center gap-2 sm:gap-4 p-2 sm:p-3 rounded-xl border transition-all',
+                              startingBooking
                                 ? 'bg-slate-800/80 border-slate-700'
-                                : 'bg-slate-950/40 border-slate-800/50 hover:bg-slate-900/40'
+                                : isUnavailable
+                                  ? 'bg-red-950/20 border-red-900/40'
+                                  : 'bg-slate-950/40 border-slate-800/50 hover:bg-slate-900/40'
                             )}
                           >
-                            <div className="w-20 text-sm font-semibold text-slate-300 flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                            <div className="w-16 sm:w-20 text-xs sm:text-sm font-semibold text-slate-300 flex items-center gap-1 shrink-0">
+                              <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400" />
                               {format12Hr(slotTime)}
                             </div>
 
-                            {booking ? (
-                              <div className="flex-1 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="h-10 w-10 rounded-full bg-emerald-600/30 text-emerald-300 font-bold flex items-center justify-center border border-emerald-500/40">
-                                    {getInitials(booking.customer_name)}
-                                  </div>
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <p className="font-bold text-white text-base">{booking.customer_name}</p>
-                                      <span className="text-xs text-slate-400">({booking.mobile_number})</span>
+                            {startingBooking ? (
+                              <div className="flex-1 flex flex-col gap-2">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-full bg-emerald-600/30 text-emerald-300 font-bold flex items-center justify-center border border-emerald-500/40 text-xs sm:text-sm shrink-0">
+                                      {getInitials(startingBooking.customer_name)}
                                     </div>
-                                    <p className="text-xs text-slate-300">
-                                      Time Slot:{' '}
-                                      <span className="text-amber-300 font-mono font-semibold">
-                                        {booking.start_time && booking.end_time
-                                          ? `${format12Hr(booking.start_time)} - ${format12Hr(booking.end_time)}`
-                                          : booking.booking_time}
-                                      </span>
-                                    </p>
-                                    {booking.actual_end_time && (
-                                      <p className="text-xs text-purple-300 mt-0.5">
-                                        Played till: <strong>{format12Hr(booking.actual_end_time)}</strong>
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <p className="font-bold text-white text-sm truncate">{startingBooking.customer_name}</p>
+                                        <span className="text-[10px] text-slate-400 hidden sm:inline">({startingBooking.mobile_number})</span>
+                                      </div>
+                                      <p className="text-[10px] sm:text-xs text-amber-300 font-mono font-semibold">
+                                        {startingBooking.start_time && startingBooking.end_time
+                                          ? `${format12Hr(startingBooking.start_time)} → ${format12Hr(startingBooking.end_time)}`
+                                          : startingBooking.booking_time}
                                       </p>
-                                    )}
+                                    </div>
                                   </div>
-                                </div>
 
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <Badge
-                                    className={cn(
-                                      'px-2.5 py-1 font-bold text-sm',
-                                      booking.payment_status === 'paid'
-                                        ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-700'
-                                        : 'bg-amber-950/80 text-amber-400 border border-amber-700'
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <Badge
+                                      className={cn(
+                                        'px-2 py-0.5 font-bold text-xs',
+                                        startingBooking.payment_status === 'paid'
+                                          ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-700'
+                                          : 'bg-amber-950/80 text-amber-400 border border-amber-700'
+                                      )}
+                                    >
+                                      ₹{startingBooking.amount}
+                                    </Badge>
+
+                                    {startingBooking.payment_status === 'pending' && (
+                                      <Button
+                                        size="sm"
+                                        onClick={() => handleMarkAsPaid(startingBooking)}
+                                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] sm:text-xs h-7"
+                                      >
+                                        <Check className="w-3 h-3 mr-0.5" /> Paid
+                                      </Button>
                                     )}
-                                  >
-                                    ₹{booking.amount} ({resolvePaymentMode(booking)})
-                                  </Badge>
 
-                                  {booking.payment_status === 'pending' && (
                                     <Button
                                       size="sm"
-                                      onClick={() => handleMarkAsPaid(booking)}
-                                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setExtendTarget(startingBooking)
+                                        setExtendEndTime(startingBooking.end_time || '18:00')
+                                      }}
+                                      className="border-slate-700 text-slate-300 hover:bg-slate-800 text-[10px] sm:text-xs h-7"
                                     >
-                                      <Check className="w-3.5 h-3.5 mr-1" /> Mark Paid
+                                      <Zap className="w-3 h-3 mr-0.5 text-amber-400" /> Ext
                                     </Button>
-                                  )}
 
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => {
-                                      setExtendTarget(booking)
-                                      setExtendEndTime(booking.end_time || '18:00')
-                                    }}
-                                    className="border-slate-700 text-slate-300 hover:bg-slate-800 text-xs h-8"
-                                  >
-                                    <Zap className="w-3.5 h-3.5 mr-1 text-amber-400" /> Extend
-                                  </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleEdit(startingBooking)}
+                                      className="border-slate-700 text-slate-300 hover:bg-slate-800 text-[10px] sm:text-xs h-7"
+                                    >
+                                      <Edit className="w-3 h-3" />
+                                    </Button>
 
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleEdit(booking)}
-                                    className="border-slate-700 text-slate-300 hover:bg-slate-800 text-xs h-8"
-                                  >
-                                    <Edit className="w-3.5 h-3.5" />
-                                  </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setDeleteConfirm(startingBooking.id)}
+                                      className="text-red-400 hover:text-red-300 hover:bg-red-950/40 text-[10px] sm:text-xs h-7"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </Button>
+                                  </div>
                                 </div>
                               </div>
+                            ) : isUnavailable ? (
+                              <div className="flex-1 text-xs text-red-400/80 font-medium flex items-center gap-1.5">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                <span>Unavailable — booked by {coveringBooking?.customer_name}</span>
+                              </div>
                             ) : (
-                              <div className="flex-1 flex justify-between items-center text-sm text-slate-500">
+                              <div className="flex-1 flex justify-between items-center text-xs text-slate-500">
                                 <span>Available</span>
                                 <Button
                                   size="sm"
@@ -709,9 +732,9 @@ export function BookingPage() {
                                     handleOpenNewDialog()
                                     form.setValue('start_time', slotTime)
                                   }}
-                                  className="text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40"
+                                  className="text-[10px] sm:text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 h-7"
                                 >
-                                  + Book Slot
+                                  + Book
                                 </Button>
                               </div>
                             )}
@@ -736,7 +759,7 @@ export function BookingPage() {
                   }}
                 />
               ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
                   {dateBookings.map((booking) => (
                     <Card
                       key={booking.id}
@@ -745,66 +768,64 @@ export function BookingPage() {
                         booking.payment_status === 'paid' ? 'border-l-4 border-l-emerald-500' : 'border-l-4 border-l-amber-500'
                       )}
                     >
-                      <CardContent className="p-4 space-y-3">
+                      <CardContent className="p-3 sm:p-4 space-y-2 sm:space-y-3">
                         <div className="flex items-start justify-between">
-                          <div>
-                            <h3 className="font-bold text-white text-lg">{booking.customer_name}</h3>
-                            <p className="text-sm text-slate-400">{booking.mobile_number}</p>
+                          <div className="min-w-0 flex-1 pr-2">
+                            <h3 className="font-bold text-white text-base sm:text-lg truncate">{booking.customer_name}</h3>
+                            <p className="text-xs sm:text-sm text-slate-400">{booking.mobile_number}</p>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <Button size="icon-sm" variant="ghost" onClick={() => handleEdit(booking)} className="text-slate-300">
-                              <Edit className="w-4 h-4" />
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button size="icon-sm" variant="ghost" onClick={() => handleEdit(booking)} className="text-slate-300 h-7 w-7">
+                              <Edit className="w-3.5 h-3.5" />
                             </Button>
-                            <Button size="icon-sm" variant="ghost" onClick={() => setDeleteConfirm(booking.id)} className="text-red-400">
-                              <Trash2 className="w-4 h-4" />
+                            <Button size="icon-sm" variant="ghost" onClick={() => setDeleteConfirm(booking.id)} className="text-red-400 h-7 w-7">
+                              <Trash2 className="w-3.5 h-3.5" />
                             </Button>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
+                        <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-300">
                           <div>
                             <span className="text-slate-500 block">Timing</span>
-                            <strong className="text-amber-300">
+                            <strong className="text-amber-300 text-[11px] sm:text-xs">
                               {booking.start_time && booking.end_time
                                 ? `${format12Hr(booking.start_time)} - ${format12Hr(booking.end_time)}`
                                 : booking.booking_time}
                             </strong>
                           </div>
                           <div>
-                            <span className="text-slate-500 block">Ground / Area</span>
-                            <strong className="text-white">{booking.area}</strong>
+                            <span className="text-slate-500 block">Ground</span>
+                            <strong className="text-white text-[11px] sm:text-xs">{booking.area}</strong>
                           </div>
                         </div>
 
                         {booking.add_ons && booking.add_ons.length > 0 && (
-                          <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800 text-xs space-y-1">
+                          <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800 text-xs space-y-0.5">
                             <span className="text-slate-400 font-semibold flex items-center gap-1">
-                              <ShoppingBag className="w-3 h-3 text-emerald-400" /> Add-ons Purchased:
+                              <ShoppingBag className="w-3 h-3 text-emerald-400" /> Add-ons:
                             </span>
                             {booking.add_ons.map((item, i) => (
                               <div key={i} className="flex justify-between text-slate-300">
-                                <span>
-                                  {item.name} x{item.qty}
-                                </span>
+                                <span>{item.name} x{item.qty}</span>
                                 <span className="text-emerald-400 font-medium">₹{item.price * item.qty}</span>
                               </div>
                             ))}
                           </div>
                         )}
 
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                        <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/80">
                           <div>
-                            <span className="text-xs text-slate-400">Total Bill</span>
-                            <p className="text-lg font-bold text-emerald-400">₹{booking.amount}</p>
+                            <span className="text-[10px] text-slate-400">Total Bill</span>
+                            <p className="text-base sm:text-lg font-bold text-emerald-400">₹{booking.amount}</p>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5 flex-wrap justify-end">
                             {booking.payment_status === 'pending' ? (
-                              <Button size="sm" onClick={() => handleMarkAsPaid(booking)} className="bg-emerald-600 text-white text-xs">
-                                Mark as Paid
+                              <Button size="sm" onClick={() => handleMarkAsPaid(booking)} className="bg-emerald-600 text-white text-[10px] sm:text-xs h-7">
+                                Mark Paid
                               </Button>
                             ) : (
-                              <Badge className="bg-emerald-950 text-emerald-400 border-emerald-800">
+                              <Badge className="bg-emerald-950 text-emerald-400 border-emerald-800 text-[10px]">
                                 <CheckCircle2 className="w-3 h-3 mr-1" /> Paid ({resolvePaymentMode(booking)})
                               </Badge>
                             )}
@@ -816,7 +837,7 @@ export function BookingPage() {
                                 setModifyTarget(booking)
                                 setActualEndTimeInput(booking.actual_end_time || booking.end_time || '18:00')
                               }}
-                              className="border-slate-700 text-slate-300 text-xs"
+                              className="border-slate-700 text-slate-300 text-[10px] sm:text-xs h-7"
                             >
                               Left Time
                             </Button>
@@ -834,7 +855,10 @@ export function BookingPage() {
 
       {/* Main Booking Create/Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!open) return }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-slate-900 text-white border-slate-800" onInteractOutside={(e) => e.preventDefault()}>
+        <DialogContent
+          className="w-[95vw] max-w-2xl max-h-[92svh] overflow-y-auto bg-slate-900 text-white border-slate-800 p-4 sm:p-6"
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle className="text-xl font-bold flex items-center gap-2">
               <Calendar className="w-5 h-5 text-emerald-400" /> {editingBooking ? 'Edit Booking' : 'New Ground Booking'}

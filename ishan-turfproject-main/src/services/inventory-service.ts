@@ -331,20 +331,24 @@ export function useSyncBookingInventorySales() {
               .eq('booking_id', bookingId)
           }
 
-          // 2. If isPaid and has active add-ons, insert new sales & deduct stock
+          // 2. Always deduct stock for active add-ons (even if pending) to keep inventory accurate.
+          // Only log to inventory_sales (for revenue) when isPaid.
           const activeAddOns = addOns.filter((a) => a.qty > 0)
-          if (isPaid && activeAddOns.length > 0) {
-            const rows = activeAddOns.map((a) => ({
-              user_id: user.id,
-              item_name: a.name,
-              qty_sold: a.qty,
-              amount: a.price * a.qty,
-              date,
-              booking_id: bookingId,
-            }))
+          if (activeAddOns.length > 0) {
+            // Log to inventory_sales ONLY when paid
+            if (isPaid) {
+              const rows = activeAddOns.map((a) => ({
+                user_id: user.id,
+                item_name: a.name,
+                qty_sold: a.qty,
+                amount: a.price * a.qty,
+                date,
+                booking_id: bookingId,
+              }))
+              await supabase.from('inventory_sales').insert(rows)
+            }
 
-            await supabase.from('inventory_sales').insert(rows)
-
+            // Always deduct stock quantity
             const { data: currentItems } = await supabase
               .from('inventory_items')
               .select('*')
@@ -375,6 +379,7 @@ export function useSyncBookingInventorySales() {
       const oldBookingSales = localSales.filter((s) => s.booking_id === bookingId)
       const localInv = getLocalInventory()
 
+      // Restore old stock first
       oldBookingSales.forEach((oldSale) => {
         const idx = localInv.findIndex((i) => i.name.trim().toLowerCase() === oldSale.item_name.trim().toLowerCase())
         if (idx >= 0) {
@@ -385,23 +390,30 @@ export function useSyncBookingInventorySales() {
       const filteredSales = localSales.filter((s) => s.booking_id !== bookingId)
       const activeAddOns = addOns.filter((a) => a.qty > 0)
 
-      if (isPaid && activeAddOns.length > 0) {
+      if (activeAddOns.length > 0) {
+        // Always deduct stock
         activeAddOns.forEach((a) => {
-          filteredSales.push({
-            id: `local-sale-${Date.now()}-${Math.random()}`,
-            created_at: new Date().toISOString(),
-            item_name: a.name,
-            date,
-            qty_sold: a.qty,
-            amount: a.price * a.qty,
-            booking_id: bookingId,
-            user_id: user?.id || 'local',
-          })
           const idx = localInv.findIndex((i) => i.name.trim().toLowerCase() === a.name.trim().toLowerCase())
           if (idx >= 0) {
             localInv[idx].quantity = Math.max(0, localInv[idx].quantity - a.qty)
           }
         })
+
+        // Only log sales when paid
+        if (isPaid) {
+          activeAddOns.forEach((a) => {
+            filteredSales.push({
+              id: `local-sale-${Date.now()}-${Math.random()}`,
+              created_at: new Date().toISOString(),
+              item_name: a.name,
+              date,
+              qty_sold: a.qty,
+              amount: a.price * a.qty,
+              booking_id: bookingId,
+              user_id: user?.id || 'local',
+            })
+          })
+        }
       }
 
       saveLocalSales(filteredSales)

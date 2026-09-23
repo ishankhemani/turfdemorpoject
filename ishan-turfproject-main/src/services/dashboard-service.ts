@@ -187,25 +187,20 @@ export function useDashboardStats(
         const totalAmount = Number(b.amount || 0)
         const isPaid = b.payment_status === 'paid'
 
-        if (mode === 'split') {
-          let onAmt = Number(b.online_amount || 0)
-          let offAmt = Number(b.offline_amount || 0)
-          if (onAmt === 0 && offAmt === 0) {
-            onAmt = Math.floor(totalAmount / 2)
-            offAmt = totalAmount - onAmt
-          }
-          // Online portion of split is received online right away
-          onlineRevenue += onAmt
-          // Offline portion of split is included when paid or recorded
-          if (isPaid || offAmt > 0) {
+        // Revenue is only counted when the booking is PAID
+        if (isPaid) {
+          if (mode === 'split') {
+            let onAmt = Number(b.online_amount || 0)
+            let offAmt = Number(b.offline_amount || 0)
+            if (onAmt === 0 && offAmt === 0) {
+              onAmt = Math.floor(totalAmount / 2)
+              offAmt = totalAmount - onAmt
+            }
+            onlineRevenue += onAmt
             offlineRevenue += offAmt
-          }
-        } else if (mode === 'online' || isOnlineBooking) {
-          // Online payments (UPI, Card, App, Website) are received online right away
-          onlineRevenue += totalAmount
-        } else {
-          // Offline / Cash payment
-          if (isPaid) {
+          } else if (mode === 'online' || isOnlineBooking) {
+            onlineRevenue += totalAmount
+          } else {
             offlineRevenue += totalAmount
           }
         }
@@ -311,6 +306,7 @@ export function useDailyData(daysCount: number = 10, startDateOverride?: string,
           const bookingsList = (bookings || []) as Booking[]
           let revenue = 0
           bookingsList.forEach((b) => {
+            if (b.payment_status !== 'paid') return
             const isOnlineBooking = Boolean(b.transaction_id || b.source === 'website' || b.payment_mode === 'online')
             const mode = b.payment_mode || (isOnlineBooking ? 'online' : 'offline')
             const amt = Number(b.amount || 0)
@@ -321,10 +317,8 @@ export function useDailyData(daysCount: number = 10, startDateOverride?: string,
                 onAmt = Math.floor(amt / 2)
                 offAmt = amt - onAmt
               }
-              revenue += onAmt + (b.payment_status === 'paid' ? offAmt : 0)
-            } else if (mode === 'online' || isOnlineBooking) {
-              revenue += amt
-            } else if (b.payment_status === 'paid') {
+              revenue += onAmt + offAmt
+            } else {
               revenue += amt
             }
           })
@@ -371,6 +365,7 @@ export function useMonthlyData(year: number = new Date().getFullYear()) {
           const bookingsList = (bookings || []) as Booking[]
           let bookingRev = 0
           bookingsList.forEach((b) => {
+            if (b.payment_status !== 'paid') return
             const isOnlineBooking = Boolean(b.transaction_id || b.source === 'website' || b.payment_mode === 'online')
             const mode = b.payment_mode || (isOnlineBooking ? 'online' : 'offline')
             const amt = Number(b.amount || 0)
@@ -381,10 +376,8 @@ export function useMonthlyData(year: number = new Date().getFullYear()) {
                 onAmt = Math.floor(amt / 2)
                 offAmt = amt - onAmt
               }
-              bookingRev += onAmt + (b.payment_status === 'paid' ? offAmt : 0)
-            } else if (mode === 'online' || isOnlineBooking) {
-              bookingRev += amt
-            } else if (b.payment_status === 'paid') {
+              bookingRev += onAmt + offAmt
+            } else {
               bookingRev += amt
             }
           })

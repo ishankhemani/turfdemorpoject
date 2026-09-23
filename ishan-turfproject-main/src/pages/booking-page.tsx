@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTodayBookings, useCreateBooking, useUpdateBooking, useDeleteBooking, useBookings } from '@/services/dashboard-service'
-import { useSyncBookingInventorySales, useRemoveBookingInventorySales, DEFAULT_INVENTORY_ITEMS } from '@/services/inventory-service'
+import { useSyncBookingInventorySales, useRemoveBookingInventorySales, DEFAULT_INVENTORY_ITEMS, useInventoryItems } from '@/services/inventory-service'
 import { useToast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -99,6 +99,7 @@ export function BookingPage() {
   // Add-ons state inside booking form
   const [selectedAddOns, setSelectedAddOns] = useState<AddOnItem[]>([])
 
+  const { data: inventoryItems = [] } = useInventoryItems()
   const { data: allBookings, isLoading: allLoading } = useBookings()
   const createBooking = useCreateBooking()
   const updateBooking = useUpdateBooking()
@@ -106,6 +107,26 @@ export function BookingPage() {
   const syncInventorySales = useSyncBookingInventorySales()
   const removeInventorySales = useRemoveBookingInventorySales()
   const { toast } = useToast()
+
+  const stockMap = React.useMemo(() => {
+    const map: Record<string, number> = {}
+    inventoryItems.forEach((inv) => {
+      map[inv.name.toLowerCase()] = inv.quantity ?? 0
+    })
+    return map
+  }, [inventoryItems])
+
+  const availableInventoryList = React.useMemo(() => {
+    if (inventoryItems && inventoryItems.length > 0) {
+      return inventoryItems.map((inv) => ({
+        name: inv.name,
+        category: inv.category,
+        default_price: inv.default_price,
+        quantity: inv.quantity ?? 0,
+      }))
+    }
+    return DEFAULT_INVENTORY_ITEMS
+  }, [inventoryItems])
 
   const form = useForm<BookingFormData>({
     resolver: zodResolver(bookingSchema),
@@ -169,7 +190,7 @@ export function BookingPage() {
   const handleOpenNewDialog = () => {
     setEditingBooking(null)
     setSelectedAddOns(
-      DEFAULT_INVENTORY_ITEMS.map((item) => ({
+      availableInventoryList.map((item) => ({
         name: item.name,
         category: item.category,
         price: item.default_price,
@@ -208,7 +229,7 @@ export function BookingPage() {
     setEditingBooking(booking)
     const existingAddOns = booking.add_ons || []
     setSelectedAddOns(
-      DEFAULT_INVENTORY_ITEMS.map((def) => {
+      availableInventoryList.map((def) => {
         const match = existingAddOns.find((a) => a.name.toLowerCase() === def.name.toLowerCase())
         return {
           name: def.name,
@@ -244,6 +265,30 @@ export function BookingPage() {
   }
 
   const handleAddOnQtyChange = (name: string, delta: number) => {
+    const currentItem = selectedAddOns.find((i) => i.name === name)
+    if (!currentItem) return
+
+    const availableStock = stockMap[name.toLowerCase()] ?? 0
+
+    if (delta > 0) {
+      if (availableStock <= 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Out of Stock',
+          description: `${name} is currently out of stock and cannot be added.`,
+        })
+        return
+      }
+      if (currentItem.qty + delta > availableStock) {
+        toast({
+          variant: 'destructive',
+          title: 'Stock Limit Reached',
+          description: `Only ${availableStock} unit${availableStock === 1 ? '' : 's'} of ${name} available in stock.`,
+        })
+        return
+      }
+    }
+
     setSelectedAddOns((prev) =>
       prev.map((item) => {
         if (item.name === name) {
@@ -799,37 +844,71 @@ export function BookingPage() {
               </div>
 
               <div className="bg-slate-950/80 p-3 sm:p-4 rounded-xl border border-slate-800 space-y-3 max-h-60 overflow-y-auto">
-                {selectedAddOns.map((item) => (
-                  <div key={item.name} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm pb-2 border-b border-slate-800/60 last:border-0 last:pb-0">
-                    <div className="flex-1">
-                      <span className="font-semibold text-white block">{item.name}</span>
-                      <span className="text-xs text-slate-500">{item.category}</span>
-                    </div>
+                {selectedAddOns.map((item) => {
+                  const stock = stockMap[item.name.toLowerCase()] ?? 0
+                  const isOutOfStock = stock <= 0
+                  const isMaxStockReached = item.qty >= stock && stock > 0
 
-                    <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400">Price (₹):</span>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={item.price}
-                          onChange={(e) => handleAddOnPriceChange(item.name, Number(e.target.value))}
-                          className="w-16 h-8 bg-slate-900 border-slate-700 text-right text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
+                  return (
+                    <div key={item.name} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm pb-2 border-b border-slate-800/60 last:border-0 last:pb-0">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={cn("font-semibold block", isOutOfStock ? "text-slate-400 line-through" : "text-white")}>
+                            {item.name}
+                          </span>
+                          {isOutOfStock ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-red-950/90 text-red-400 border-red-800/60 font-bold">
+                              Out of Stock
+                            </Badge>
+                          ) : stock <= 5 ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-amber-950/90 text-amber-400 border-amber-800/60 font-bold">
+                              Low Stock ({stock})
+                            </Badge>
+                          ) : (
+                            <span className="text-[10px] text-emerald-400/80 font-mono">(Stock: {stock})</span>
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-500">{item.category}</span>
                       </div>
 
-                      <div className="flex items-center gap-2 bg-slate-900 p-1 rounded-lg border border-slate-700">
-                        <button type="button" onClick={() => handleAddOnQtyChange(item.name, -1)} className="h-6 w-6 rounded text-slate-300 hover:bg-slate-700 flex items-center justify-center text-sm font-bold transition-colors">
-                          −
-                        </button>
-                        <span className="w-6 text-center font-bold text-white text-xs">{item.qty}</span>
-                        <button type="button" onClick={() => handleAddOnQtyChange(item.name, 1)} className="h-6 w-6 rounded text-slate-300 hover:bg-slate-700 flex items-center justify-center text-sm font-bold transition-colors">
-                          +
-                        </button>
+                      <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">Price (₹):</span>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={item.price}
+                            onChange={(e) => handleAddOnPriceChange(item.name, Number(e.target.value))}
+                            className="w-16 h-8 bg-slate-900 border-slate-700 text-right text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2 bg-slate-900 p-1 rounded-lg border border-slate-700">
+                          <button
+                            type="button"
+                            onClick={() => handleAddOnQtyChange(item.name, -1)}
+                            disabled={item.qty <= 0}
+                            className="h-6 w-6 rounded text-slate-300 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-transparent flex items-center justify-center text-sm font-bold transition-colors"
+                          >
+                            −
+                          </button>
+                          <span className={cn("w-6 text-center font-bold text-xs", item.qty > 0 ? "text-emerald-400" : "text-slate-400")}>
+                            {item.qty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleAddOnQtyChange(item.name, 1)}
+                            disabled={isOutOfStock || isMaxStockReached}
+                            title={isOutOfStock ? "Out of Stock" : isMaxStockReached ? `Stock limit reached (${stock})` : "Add item"}
+                            className="h-6 w-6 rounded text-slate-300 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-transparent flex items-center justify-center text-sm font-bold transition-colors"
+                          >
+                            +
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 

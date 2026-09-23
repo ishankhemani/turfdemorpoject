@@ -149,13 +149,17 @@ export function InventoryPage() {
                           <td className="px-6 py-4 text-emerald-400 font-semibold">₹{item.default_price}</td>
                           <td className="px-6 py-4 font-bold text-white">{item.quantity} units</td>
                           <td className="px-6 py-4">
-                            {item.quantity <= 5 ? (
+                            {item.quantity <= 0 ? (
                               <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-red-950/80 text-red-400 border border-red-800/50">
+                                Out of Stock (0)
+                              </span>
+                            ) : item.quantity <= 5 ? (
+                              <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-950/80 text-amber-400 border border-amber-800/50">
                                 Low Stock ({item.quantity})
                               </span>
                             ) : (
                               <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
-                                In Stock
+                                In Stock ({item.quantity})
                               </span>
                             )}
                           </td>

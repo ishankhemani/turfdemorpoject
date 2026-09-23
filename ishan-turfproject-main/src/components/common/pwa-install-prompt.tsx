@@ -40,8 +40,22 @@ export function PwaInstallPrompt() {
   const [installing, setInstalling] = useState(false)
 
   useEffect(() => {
-    // Don't show if already installed or dismissed recently
-    if (isRunningAsStandalone() || wasDismissedRecently()) return
+    const handleManualTrigger = () => {
+      try {
+        localStorage.removeItem(STORAGE_KEY)
+      } catch {
+        // silent fallback
+      }
+      setIsIOSDevice(isIOS())
+      setShowBanner(true)
+    }
+
+    window.addEventListener('trigger-pwa-install', handleManualTrigger)
+
+    // Don't auto-show if already installed or dismissed recently
+    if (isRunningAsStandalone() || wasDismissedRecently()) {
+      return () => window.removeEventListener('trigger-pwa-install', handleManualTrigger)
+    }
 
     const ios = isIOS()
     setIsIOSDevice(ios)
@@ -49,7 +63,10 @@ export function PwaInstallPrompt() {
     if (ios) {
       // iOS Safari: no beforeinstallprompt — just show manual instructions after 3s
       const timer = setTimeout(() => setShowBanner(true), 3000)
-      return () => clearTimeout(timer)
+      return () => {
+        clearTimeout(timer)
+        window.removeEventListener('trigger-pwa-install', handleManualTrigger)
+      }
     }
 
     // Chrome/Edge/Android: capture install event
@@ -60,7 +77,10 @@ export function PwaInstallPrompt() {
     }
 
     window.addEventListener('beforeinstallprompt', handler)
-    return () => window.removeEventListener('beforeinstallprompt', handler)
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler)
+      window.removeEventListener('trigger-pwa-install', handleManualTrigger)
+    }
   }, [])
 
   const handleInstall = useCallback(async () => {

@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
-import { User, Bell, Palette, Shield, Save, RotateCcw, AlertTriangle, CheckCircle } from 'lucide-react'
+import { User, Bell, Palette, Shield, Save, RotateCcw, AlertTriangle, CheckCircle, Smartphone, Download } from 'lucide-react'
 
 const profileSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -85,8 +85,9 @@ export function SettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-6">
           <TabsTrigger value="profile"><User className="mr-2 h-4 w-4" /> Profile</TabsTrigger>
+          <TabsTrigger value="app"><Smartphone className="mr-2 h-4 w-4 text-emerald-400" /> Mobile App</TabsTrigger>
           <TabsTrigger value="notifications"><Bell className="mr-2 h-4 w-4" /> Notifications</TabsTrigger>
           <TabsTrigger value="appearance"><Palette className="mr-2 h-4 w-4" /> Appearance</TabsTrigger>
           <TabsTrigger value="security"><Shield className="mr-2 h-4 w-4" /> Security</TabsTrigger>
@@ -118,6 +119,63 @@ export function SettingsPage() {
                   Save Changes
                 </Button>
               </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="app">
+          <Card className="border-emerald-900/40 bg-slate-900/80 text-white">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-xl text-emerald-400">
+                <Smartphone className="w-6 h-6 text-emerald-400" /> Install App / Add to Home Screen
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Install the Turf POS app on your Phone, Tablet, or Computer for offline access, fast loading, and native app experience.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <h4 className="font-bold text-white text-base">Instant Install Banner</h4>
+                    <p className="text-xs text-slate-400">Trigger the app install popup banner immediately</p>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      window.dispatchEvent(new Event('trigger-pwa-install'))
+                      toast({ title: 'Install Banner Triggered', description: 'Look at the bottom banner popup to install the app.' })
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                  >
+                    <Download className="w-4 h-4 mr-2" /> Show Install Popup
+                  </Button>
+                </div>
+
+                <Separator className="bg-slate-800" />
+
+                <div className="space-y-3">
+                  <h4 className="font-bold text-slate-200 text-sm">How to Add to Home Screen Manually:</h4>
+                  <div className="grid sm:grid-cols-2 gap-4 text-xs text-slate-300">
+                    <div className="bg-slate-900/80 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                      <span className="font-bold text-emerald-400 block text-sm">📱 Android / Chrome / Edge:</span>
+                      <ol className="list-decimal pl-4 space-y-1.5 text-slate-300">
+                        <li>Tap the <strong>3 dots menu</strong> (⋮) in the top right corner of Chrome/Edge.</li>
+                        <li>Select <strong>"Add to Home screen"</strong> or <strong>"Install app"</strong>.</li>
+                        <li>Confirm install to add icon directly to your phone apps screen.</li>
+                      </ol>
+                    </div>
+
+                    <div className="bg-slate-900/80 p-3.5 rounded-lg border border-slate-800 space-y-2">
+                      <span className="font-bold text-emerald-400 block text-sm">🍎 iPhone / iPad (Safari):</span>
+                      <ol className="list-decimal pl-4 space-y-1.5 text-slate-300">
+                        <li>Tap the <strong>Share button</strong> (square with up arrow at the bottom of Safari).</li>
+                        <li>Scroll down the menu and tap <strong>"Add to Home Screen"</strong>.</li>
+                        <li>Tap <strong>Add</strong> in top right corner.</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

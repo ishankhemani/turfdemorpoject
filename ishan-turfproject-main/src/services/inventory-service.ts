@@ -21,27 +21,42 @@ export const DEFAULT_INVENTORY_ITEMS = [
 
 const LOCAL_STORAGE_INVENTORY_KEY = 'turf_pos_inventory_items'
 const LOCAL_STORAGE_SALES_KEY = 'turf_pos_inventory_sales'
+// Bump this version string whenever the default inventory list changes.
+// Any cached data from a prior version is discarded and re-initialised with quantity = 0.
+const INVENTORY_VERSION = 'v2-qty0'
+const LOCAL_STORAGE_INVENTORY_VERSION_KEY = 'turf_pos_inventory_version'
 
-function getLocalInventory(): InventoryItem[] {
-  try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_INVENTORY_KEY)
-    if (raw) return JSON.parse(raw)
-  } catch (e) {
-    console.error('Failed reading local inventory', e)
-  }
-  // Default fallback if empty
-  const defaults: InventoryItem[] = DEFAULT_INVENTORY_ITEMS.map((item, index) => ({
+function buildDefaultInventory(): InventoryItem[] {
+  return DEFAULT_INVENTORY_ITEMS.map((item, index) => ({
     id: `local-inv-${index}`,
     name: item.name,
     category: item.category,
     default_price: item.default_price,
-    quantity: item.quantity,
+    quantity: 0, // always start at 0 — owner stocks up manually
     last_edited: new Date().toISOString(),
     created_at: new Date().toISOString(),
     user_id: 'local',
   }))
-  localStorage.setItem(LOCAL_STORAGE_INVENTORY_KEY, JSON.stringify(defaults))
-  return defaults
+}
+
+function getLocalInventory(): InventoryItem[] {
+  try {
+    const storedVersion = localStorage.getItem(LOCAL_STORAGE_INVENTORY_VERSION_KEY)
+    const raw = localStorage.getItem(LOCAL_STORAGE_INVENTORY_KEY)
+
+    if (storedVersion === INVENTORY_VERSION && raw) {
+      return JSON.parse(raw) as InventoryItem[]
+    }
+
+    // Version mismatch or missing — wipe old cache and seed fresh with qty = 0
+    const defaults = buildDefaultInventory()
+    localStorage.setItem(LOCAL_STORAGE_INVENTORY_KEY, JSON.stringify(defaults))
+    localStorage.setItem(LOCAL_STORAGE_INVENTORY_VERSION_KEY, INVENTORY_VERSION)
+    return defaults
+  } catch (e) {
+    console.error('Failed reading local inventory', e)
+    return buildDefaultInventory()
+  }
 }
 
 function saveLocalInventory(items: InventoryItem[]) {
@@ -80,9 +95,12 @@ export function useInventoryItems() {
         if (error) throw error
 
         if (!data || data.length === 0) {
-          // Pre-seed table if empty
+          // Table empty — seed with all quantities = 0
           const toInsert = DEFAULT_INVENTORY_ITEMS.map(item => ({
-            ...item,
+            name: item.name,
+            category: item.category,
+            default_price: item.default_price,
+            quantity: 0,
             user_id: user.id,
             last_edited: new Date().toISOString()
           }))
@@ -97,6 +115,26 @@ export function useInventoryItems() {
           return getLocalInventory()
         }
 
+        // ── One-time migration: reset all quantities to 0 ─────────────────
+        // Runs once per user session (flag stored in localStorage).
+        // Wipes any dummy/seeded quantities so the owner starts fresh.
+        const migrationKey = `turf_inv_qty_reset_${user.id}`
+        const alreadyReset = localStorage.getItem(migrationKey) === INVENTORY_VERSION
+
+        if (!alreadyReset) {
+          const ids = (data as InventoryItem[]).map(i => i.id)
+          if (ids.length > 0) {
+            await supabase
+              .from('inventory_items')
+              .update({ quantity: 0, last_edited: new Date().toISOString() })
+              .in('id', ids)
+              .eq('user_id', user.id)
+          }
+          localStorage.setItem(migrationKey, INVENTORY_VERSION)
+          // Return data with quantities zeroed locally so UI updates instantly
+          return (data as InventoryItem[]).map(i => ({ ...i, quantity: 0 }))
+        }
+
         return data as InventoryItem[]
       } catch (e) {
         console.warn('Using local inventory fallback', e)
@@ -106,6 +144,7 @@ export function useInventoryItems() {
     enabled: true,
   })
 }
+
 
 export function useUpdateInventoryStock() {
   const { user } = useAuth()
@@ -257,3 +296,272 @@ export function useInventorySales(date?: string) {
     enabled: true
   })
 }
+
+export function useSyncBookingInventorySales() {
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      bookingId,
+      date,
+      isPaid,
+      addOns,
+    }: {
+      bookingId: string
+      date: string
+      isPaid: boolean
+      addOns: Array<{ name: string; qty: number; price: number }>
+    }) => {
+      if (user) {
+        try {
+          // 1. Fetch existing sales for this booking to restore stock
+          const { data: existingSales } = await supabase
+            .from('inventory_sales')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('booking_id', bookingId)
+
+          if (existingSales && existingSales.length > 0) {
+            const { data: invItems } = await supabase
+              .from('inventory_items')
+              .select('*')
+              .eq('user_id', user.id)
+
+            if (invItems) {
+              for (const oldSale of existingSales) {
+                const matched = invItems.find(
+                  (i: InventoryItem) => i.name.toLowerCase() === oldSale.item_name.toLowerCase()
+                )
+                if (matched) {
+                  const restoredQty = matched.quantity + Number(oldSale.qty_sold || 0)
+                  await supabase
+                    .from('inventory_items')
+                    .update({ quantity: restoredQty, last_edited: new Date().toISOString() })
+                    .eq('id', matched.id)
+                  matched.quantity = restoredQty
+                }
+              }
+            }
+
+            await supabase
+              .from('inventory_sales')
+              .delete()
+              .eq('user_id', user.id)
+              .eq('booking_id', bookingId)
+          }
+
+          // 2. If isPaid and has active add-ons, insert new sales & deduct stock
+          const activeAddOns = addOns.filter((a) => a.qty > 0)
+          if (isPaid && activeAddOns.length > 0) {
+            const rows = activeAddOns.map((a) => ({
+              user_id: user.id,
+              item_name: a.name,
+              qty_sold: a.qty,
+              amount: a.price * a.qty,
+              date,
+              booking_id: bookingId,
+            }))
+
+            await supabase.from('inventory_sales').insert(rows)
+
+            const { data: currentItems } = await supabase
+              .from('inventory_items')
+              .select('*')
+              .eq('user_id', user.id)
+
+            if (currentItems) {
+              for (const addOn of activeAddOns) {
+                const matched = currentItems.find(
+                  (i: InventoryItem) => i.name.toLowerCase() === addOn.name.toLowerCase()
+                )
+                if (matched) {
+                  const newQty = Math.max(0, matched.quantity - addOn.qty)
+                  await supabase
+                    .from('inventory_items')
+                    .update({ quantity: newQty, last_edited: new Date().toISOString() })
+                    .eq('id', matched.id)
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Supabase booking inventory sync failed', e)
+        }
+      }
+
+      // Sync local storage fallback
+      const localSales = getLocalSales()
+      const oldBookingSales = localSales.filter((s) => s.booking_id === bookingId)
+      const localInv = getLocalInventory()
+
+      oldBookingSales.forEach((oldSale) => {
+        const idx = localInv.findIndex((i) => i.name.toLowerCase() === oldSale.item_name.toLowerCase())
+        if (idx >= 0) {
+          localInv[idx].quantity += Number(oldSale.qty_sold || 0)
+        }
+      })
+
+      const filteredSales = localSales.filter((s) => s.booking_id !== bookingId)
+      const activeAddOns = addOns.filter((a) => a.qty > 0)
+
+      if (isPaid && activeAddOns.length > 0) {
+        activeAddOns.forEach((a) => {
+          filteredSales.push({
+            id: `local-sale-${Date.now()}-${Math.random()}`,
+            created_at: new Date().toISOString(),
+            item_name: a.name,
+            date,
+            qty_sold: a.qty,
+            amount: a.price * a.qty,
+            booking_id: bookingId,
+            user_id: user?.id || 'local',
+          })
+          const idx = localInv.findIndex((i) => i.name.toLowerCase() === a.name.toLowerCase())
+          if (idx >= 0) {
+            localInv[idx].quantity = Math.max(0, localInv[idx].quantity - a.qty)
+          }
+        })
+      }
+
+      saveLocalSales(filteredSales)
+      saveLocalInventory(localInv)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory-sales'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
+    },
+  })
+}
+
+export function useRemoveBookingInventorySales() {
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (bookingId: string) => {
+      if (user) {
+        try {
+          const { data: existingSales } = await supabase
+            .from('inventory_sales')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('booking_id', bookingId)
+
+          if (existingSales && existingSales.length > 0) {
+            const { data: invItems } = await supabase
+              .from('inventory_items')
+              .select('*')
+              .eq('user_id', user.id)
+
+            if (invItems) {
+              for (const oldSale of existingSales) {
+                const matched = invItems.find(
+                  (i: InventoryItem) => i.name.toLowerCase() === oldSale.item_name.toLowerCase()
+                )
+                if (matched) {
+                  const restoredQty = matched.quantity + Number(oldSale.qty_sold || 0)
+                  await supabase
+                    .from('inventory_items')
+                    .update({ quantity: restoredQty, last_edited: new Date().toISOString() })
+                    .eq('id', matched.id)
+                }
+              }
+            }
+
+            await supabase
+              .from('inventory_sales')
+              .delete()
+              .eq('user_id', user.id)
+              .eq('booking_id', bookingId)
+          }
+        } catch (e) {
+          console.warn('Supabase booking sales remove failed', e)
+        }
+      }
+
+      const localSales = getLocalSales()
+      const oldSales = localSales.filter((s) => s.booking_id === bookingId)
+      const localInv = getLocalInventory()
+
+      oldSales.forEach((s) => {
+        const idx = localInv.findIndex((i) => i.name.toLowerCase() === s.item_name.toLowerCase())
+        if (idx >= 0) {
+          localInv[idx].quantity += Number(s.qty_sold || 0)
+        }
+      })
+
+      const remainingSales = localSales.filter((s) => s.booking_id !== bookingId)
+      saveLocalSales(remainingSales)
+      saveLocalInventory(localInv)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory-sales'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
+    },
+  })
+}
+
+export function useResetAllData() {
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () => {
+      if (user) {
+        const tablesToDelete = [
+          'bookings',
+          'expenses',
+          'labour_payments',
+          'labour',
+          'liability_payments',
+          'liabilities',
+          'other_income',
+          'marketing_campaigns',
+          'inventory_sales',
+          'customers',
+        ]
+
+        for (const table of tablesToDelete) {
+          try {
+            await supabase.from(table).delete().eq('user_id', user.id)
+          } catch (e) {
+            console.warn(`Failed resetting table ${table}`, e)
+          }
+        }
+
+        try {
+          const { data: invItems } = await supabase
+            .from('inventory_items')
+            .select('id')
+            .eq('user_id', user.id)
+
+          if (invItems && invItems.length > 0) {
+            const ids = invItems.map((i) => i.id)
+            await supabase
+              .from('inventory_items')
+              .update({ quantity: 0, last_edited: new Date().toISOString() })
+              .in('id', ids)
+              .eq('user_id', user.id)
+          }
+        } catch (e) {
+          console.warn('Failed resetting inventory quantities', e)
+        }
+      }
+
+      const defaults = buildDefaultInventory()
+      localStorage.setItem(LOCAL_STORAGE_INVENTORY_KEY, JSON.stringify(defaults))
+      localStorage.setItem(LOCAL_STORAGE_INVENTORY_VERSION_KEY, INVENTORY_VERSION)
+      localStorage.setItem(LOCAL_STORAGE_SALES_KEY, JSON.stringify([]))
+      if (user) {
+        localStorage.setItem(`turf_inv_qty_reset_${user.id}`, INVENTORY_VERSION)
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries()
+    },
+  })
+}
+

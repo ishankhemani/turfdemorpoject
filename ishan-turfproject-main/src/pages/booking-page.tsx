@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTodayBookings, useCreateBooking, useUpdateBooking, useDeleteBooking, useBookings } from '@/services/dashboard-service'
-import { useRecordInventorySales, DEFAULT_INVENTORY_ITEMS } from '@/services/inventory-service'
+import { useSyncBookingInventorySales, useRemoveBookingInventorySales, DEFAULT_INVENTORY_ITEMS } from '@/services/inventory-service'
 import { useToast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -103,7 +103,8 @@ export function BookingPage() {
   const createBooking = useCreateBooking()
   const updateBooking = useUpdateBooking()
   const deleteBooking = useDeleteBooking()
-  const recordSales = useRecordInventorySales()
+  const syncInventorySales = useSyncBookingInventorySales()
+  const removeInventorySales = useRemoveBookingInventorySales()
   const { toast } = useToast()
 
   const form = useForm<BookingFormData>({
@@ -298,19 +299,17 @@ export function BookingPage() {
         toast({ title: 'Booking created', description: 'New booking created successfully' })
       }
 
-      // Record add-ons to inventory sales log & deduct stock
-      if (activeAddOns.length > 0) {
+      // Sync add-ons to inventory sales log & stock (only records if payment_status is paid)
+      if (createdBookingId) {
         try {
-          await recordSales.mutateAsync(
-            activeAddOns.map((a) => ({
-              item_name: a.name,
-              qty_sold: a.qty,
-              amount: a.price * a.qty,
-              booking_id: createdBookingId,
-            }))
-          )
+          await syncInventorySales.mutateAsync({
+            bookingId: createdBookingId,
+            date: data.booking_date,
+            isPaid: data.payment_status === 'paid',
+            addOns: selectedAddOns,
+          })
         } catch (invErr) {
-          console.warn('Inventory log record bypassed safely', invErr)
+          console.warn('Inventory log sync bypassed safely', invErr)
         }
       }
 
@@ -334,6 +333,12 @@ export function BookingPage() {
         payment_mode: mode,
         online_amount: booking.online_amount ?? (mode === 'online' ? booking.amount : mode === 'split' ? Math.floor(booking.amount / 2) : 0),
         offline_amount: booking.offline_amount ?? (mode === 'offline' ? booking.amount : mode === 'split' ? booking.amount - Math.floor(booking.amount / 2) : 0),
+      })
+      await syncInventorySales.mutateAsync({
+        bookingId: booking.id,
+        date: booking.booking_date,
+        isPaid: true,
+        addOns: booking.add_ons || [],
       })
       toast({ title: 'Marked as Paid', description: `Booking for ${booking.customer_name} marked as paid.` })
     } catch (e) {
@@ -375,6 +380,7 @@ export function BookingPage() {
 
   const handleDelete = async (id: string) => {
     try {
+      await removeInventorySales.mutateAsync(id)
       await deleteBooking.mutateAsync(id)
       toast({ title: 'Booking deleted', description: 'Booking removed' })
       setDeleteConfirm(null)

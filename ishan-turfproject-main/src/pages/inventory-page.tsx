@@ -263,17 +263,16 @@ export function InventoryPage() {
               </div>
 
               <div>
-                <label className="text-sm text-slate-300 font-medium block mb-1">Add Additional Quantity (+)</label>
+                <label className="text-sm text-slate-300 font-medium block mb-1">Adjust Quantity (+ to add, - to subtract/return)</label>
                 <Input
                   type="number"
-                  min="0"
                   value={addQty}
                   onChange={(e) => setAddQty(Number(e.target.value))}
-                  placeholder="Enter quantity to add to stock..."
+                  placeholder="Enter quantity to adjust (+5 or -2)..."
                   className="bg-slate-950/60 border-slate-700 text-white"
                 />
                 <p className="text-xs text-slate-400 mt-1">
-                  New Stock Total will be: <strong className="text-emerald-400">{editingItem.quantity + Number(addQty)} units</strong>
+                  New Stock Total will be: <strong className="text-emerald-400">{Math.max(0, editingItem.quantity + Number(addQty))} units</strong>
                 </p>
               </div>
 

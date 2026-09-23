@@ -331,22 +331,18 @@ export function useSyncBookingInventorySales() {
               .eq('booking_id', bookingId)
           }
 
-          // 2. Always deduct stock for active add-ons (even if pending) to keep inventory accurate.
-          // Only log to inventory_sales (for revenue) when isPaid.
+          // 2. Always deduct stock and log sale for active add-ons (even if pending) to keep inventory and stock logs accurate.
           const activeAddOns = addOns.filter((a) => a.qty > 0)
           if (activeAddOns.length > 0) {
-            // Log to inventory_sales ONLY when paid
-            if (isPaid) {
-              const rows = activeAddOns.map((a) => ({
-                user_id: user.id,
-                item_name: a.name,
-                qty_sold: a.qty,
-                amount: a.price * a.qty,
-                date,
-                booking_id: bookingId,
-              }))
-              await supabase.from('inventory_sales').insert(rows)
-            }
+            const rows = activeAddOns.map((a) => ({
+              user_id: user.id,
+              item_name: a.name,
+              qty_sold: a.qty,
+              amount: a.price * a.qty,
+              date,
+              booking_id: bookingId,
+            }))
+            await supabase.from('inventory_sales').insert(rows)
 
             // Always deduct stock quantity
             const { data: currentItems } = await supabase
@@ -391,29 +387,24 @@ export function useSyncBookingInventorySales() {
       const activeAddOns = addOns.filter((a) => a.qty > 0)
 
       if (activeAddOns.length > 0) {
-        // Always deduct stock
+        // Always deduct stock and record sale row
         activeAddOns.forEach((a) => {
           const idx = localInv.findIndex((i) => i.name.trim().toLowerCase() === a.name.trim().toLowerCase())
           if (idx >= 0) {
             localInv[idx].quantity = Math.max(0, localInv[idx].quantity - a.qty)
           }
-        })
 
-        // Only log sales when paid
-        if (isPaid) {
-          activeAddOns.forEach((a) => {
-            filteredSales.push({
-              id: `local-sale-${Date.now()}-${Math.random()}`,
-              created_at: new Date().toISOString(),
-              item_name: a.name,
-              date,
-              qty_sold: a.qty,
-              amount: a.price * a.qty,
-              booking_id: bookingId,
-              user_id: user?.id || 'local',
-            })
+          filteredSales.push({
+            id: `local-sale-${Date.now()}-${Math.random()}`,
+            created_at: new Date().toISOString(),
+            item_name: a.name,
+            date,
+            qty_sold: a.qty,
+            amount: a.price * a.qty,
+            booking_id: bookingId,
+            user_id: user?.id || 'local',
           })
-        }
+        })
       }
 
       saveLocalSales(filteredSales)

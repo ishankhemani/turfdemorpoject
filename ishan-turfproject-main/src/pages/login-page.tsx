@@ -1,40 +1,37 @@
 import { useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
-import { Eye, EyeOff, Mail, Lock, User, ArrowRight, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, ArrowLeft, KeyRound, CheckCircle2 } from 'lucide-react'
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 })
 
-const signupSchema = z.object({
-  fullName: z.string().min(2, 'Name must be at least 2 characters'),
+const forgotSchema = z.object({
   email: z.string().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  confirmPassword: z.string(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ['confirmPassword'],
 })
 
 type LoginFormData = z.infer<typeof loginSchema>
-type SignupFormData = z.infer<typeof signupSchema>
+type ForgotFormData = z.infer<typeof forgotSchema>
+
+type View = 'login' | 'forgot' | 'sent'
 
 export function LoginPage() {
-  const [isLogin, setIsLogin] = useState(true)
+  const [view, setView] = useState<View>('login')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const { signIn, signUp } = useAuth()
+  const [sentEmail, setSentEmail] = useState('')
+  const { signIn, resetPassword } = useAuth()
   const navigate = useNavigate()
   const { toast } = useToast()
 
@@ -43,9 +40,9 @@ export function LoginPage() {
     defaultValues: { email: '', password: '' },
   })
 
-  const signupForm = useForm<SignupFormData>({
-    resolver: zodResolver(signupSchema),
-    defaultValues: { fullName: '', email: '', password: '', confirmPassword: '' },
+  const forgotForm = useForm<ForgotFormData>({
+    resolver: zodResolver(forgotSchema),
+    defaultValues: { email: '' },
   })
 
   const handleLogin = async (data: LoginFormData) => {
@@ -68,24 +65,36 @@ export function LoginPage() {
     }
   }
 
-  const handleSignup = async (data: SignupFormData) => {
+  const handleForgotPassword = async (data: ForgotFormData) => {
     setLoading(true)
     try {
-      await signUp(data.email, data.password, data.fullName)
-      toast({
-        title: 'Account created!',
-        description: 'Please check your email to verify your account.',
-      })
-      setIsLogin(true)
+      await resetPassword(data.email)
+      setSentEmail(data.email)
+      setView('sent')
     } catch (error) {
       toast({
         variant: 'destructive',
-        title: 'Sign up failed',
-        description: error instanceof Error ? error.message : 'Please try again',
+        title: 'Reset failed',
+        description: error instanceof Error ? error.message : 'Could not send reset email. Please try again.',
       })
     } finally {
       setLoading(false)
     }
+  }
+
+  const slideVariants = {
+    enter: (direction: number) => ({
+      x: direction > 0 ? 40 : -40,
+      opacity: 0,
+    }),
+    center: {
+      x: 0,
+      opacity: 1,
+    },
+    exit: (direction: number) => ({
+      x: direction > 0 ? -40 : 40,
+      opacity: 0,
+    }),
   }
 
   return (
@@ -96,6 +105,7 @@ export function LoginPage() {
         transition={{ duration: 0.5 }}
         className="w-full max-w-md"
       >
+        {/* Logo / Brand */}
         <div className="text-center mb-8">
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
@@ -118,194 +128,236 @@ export function LoginPage() {
           </motion.div>
           <h1 className="text-2xl font-bold tracking-tight">Turf POS</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Premium SaaS for turf management
+            Owner &amp; Admin Panel
           </p>
         </div>
 
-        <Card className="border-0 shadow-soft-lg">
-          <CardHeader className="space-y-1 pb-4">
-            <CardTitle className="text-xl text-center">
-              {isLogin ? 'Welcome back' : 'Create account'}
-            </CardTitle>
-            <CardDescription className="text-center">
-              {isLogin
-                ? 'Enter your credentials to sign in'
-                : 'Fill in your details to get started'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLogin ? (
-              <form onSubmit={loginForm.handleSubmit(handleLogin)} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="you@example.com"
-                      className="pl-10"
-                      {...loginForm.register('email')}
-                    />
-                  </div>
-                  {loginForm.formState.errors.email && (
-                    <p className="text-xs text-destructive">
-                      {loginForm.formState.errors.email.message}
-                    </p>
-                  )}
-                </div>
+        <Card className="border-0 shadow-soft-lg overflow-hidden">
+          <AnimatePresence mode="wait" initial={false} custom={view === 'login' ? -1 : 1}>
 
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="Enter your password"
-                      className="pl-10 pr-10"
-                      {...loginForm.register('password')}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  {loginForm.formState.errors.password && (
-                    <p className="text-xs text-destructive">
-                      {loginForm.formState.errors.password.message}
-                    </p>
-                  )}
-                </div>
+            {/* ── LOGIN VIEW ── */}
+            {view === 'login' && (
+              <motion.div
+                key="login"
+                custom={-1}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.25, ease: 'easeInOut' }}
+              >
+                <CardHeader className="space-y-1 pb-4">
+                  <CardTitle className="text-xl text-center">Owner Sign In</CardTitle>
+                  <CardDescription className="text-center">
+                    Enter your credentials to access the admin panel
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={loginForm.handleSubmit(handleLogin)} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="email"
+                          type="email"
+                          placeholder="admin@example.com"
+                          className="pl-10"
+                          {...loginForm.register('email')}
+                        />
+                      </div>
+                      {loginForm.formState.errors.email && (
+                        <p className="text-xs text-destructive">
+                          {loginForm.formState.errors.email.message}
+                        </p>
+                      )}
+                    </div>
 
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <ArrowRight className="mr-2 h-4 w-4" />
-                  )}
-                  Sign in
-                </Button>
-              </form>
-            ) : (
-              <form onSubmit={signupForm.handleSubmit(handleSignup)} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="fullName">Full Name</Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="fullName"
-                      placeholder="John Doe"
-                      className="pl-10"
-                      {...signupForm.register('fullName')}
-                    />
-                  </div>
-                  {signupForm.formState.errors.fullName && (
-                    <p className="text-xs text-destructive">
-                      {signupForm.formState.errors.fullName.message}
-                    </p>
-                  )}
-                </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="password">Password</Label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            forgotForm.setValue('email', loginForm.getValues('email'))
+                            setView('forgot')
+                          }}
+                          className="text-xs text-primary hover:underline font-medium transition-colors"
+                        >
+                          Forgot password?
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="password"
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder="Enter your password"
+                          className="pl-10 pr-10"
+                          {...loginForm.register('password')}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                      {loginForm.formState.errors.password && (
+                        <p className="text-xs text-destructive">
+                          {loginForm.formState.errors.password.message}
+                        </p>
+                      )}
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="signup-email"
-                      type="email"
-                      placeholder="you@example.com"
-                      className="pl-10"
-                      {...signupForm.register('email')}
-                    />
-                  </div>
-                  {signupForm.formState.errors.email && (
-                    <p className="text-xs text-destructive">
-                      {signupForm.formState.errors.email.message}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="signup-password"
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="Create a password"
-                      className="pl-10 pr-10"
-                      {...signupForm.register('password')}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  {signupForm.formState.errors.password && (
-                    <p className="text-xs text-destructive">
-                      {signupForm.formState.errors.password.message}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="confirmPassword">Confirm Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="confirmPassword"
-                      type="password"
-                      placeholder="Confirm your password"
-                      className="pl-10"
-                      {...signupForm.register('confirmPassword')}
-                    />
-                  </div>
-                  {signupForm.formState.errors.confirmPassword && (
-                    <p className="text-xs text-destructive">
-                      {signupForm.formState.errors.confirmPassword.message}
-                    </p>
-                  )}
-                </div>
-
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <ArrowRight className="mr-2 h-4 w-4" />
-                  )}
-                  Create account
-                </Button>
-              </form>
+                    <Button type="submit" className="w-full" disabled={loading}>
+                      {loading ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowRight className="mr-2 h-4 w-4" />
+                      )}
+                      Sign in to Admin Panel
+                    </Button>
+                  </form>
+                </CardContent>
+              </motion.div>
             )}
 
-            <div className="mt-6 text-center text-sm">
-              <span className="text-muted-foreground">
-                {isLogin ? "Don't have an account?" : 'Already have an account?'}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLogin(!isLogin)
-                  loginForm.reset()
-                  signupForm.reset()
-                }}
-                className="ml-2 text-primary font-medium hover:underline"
+            {/* ── FORGOT PASSWORD VIEW ── */}
+            {view === 'forgot' && (
+              <motion.div
+                key="forgot"
+                custom={1}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.25, ease: 'easeInOut' }}
               >
-                {isLogin ? 'Sign up' : 'Sign in'}
-              </button>
-            </div>
-          </CardContent>
+                <CardHeader className="space-y-1 pb-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <button
+                      type="button"
+                      onClick={() => setView('login')}
+                      className="text-muted-foreground hover:text-foreground transition-colors p-1 -ml-1 rounded-md hover:bg-muted"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                    </button>
+                    <CardTitle className="text-xl">Reset Password</CardTitle>
+                  </div>
+                  <CardDescription>
+                    Enter your email and we'll send you a link to reset your password.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={forgotForm.handleSubmit(handleForgotPassword)} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="forgot-email">Email address</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="forgot-email"
+                          type="email"
+                          placeholder="admin@example.com"
+                          className="pl-10"
+                          {...forgotForm.register('email')}
+                        />
+                      </div>
+                      {forgotForm.formState.errors.email && (
+                        <p className="text-xs text-destructive">
+                          {forgotForm.formState.errors.email.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <Button type="submit" className="w-full" disabled={loading}>
+                      {loading ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <KeyRound className="mr-2 h-4 w-4" />
+                      )}
+                      Send Reset Link
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full"
+                      onClick={() => setView('login')}
+                    >
+                      <ArrowLeft className="mr-2 h-4 w-4" />
+                      Back to Sign In
+                    </Button>
+                  </form>
+                </CardContent>
+              </motion.div>
+            )}
+
+            {/* ── EMAIL SENT VIEW ── */}
+            {view === 'sent' && (
+              <motion.div
+                key="sent"
+                custom={1}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.25, ease: 'easeInOut' }}
+              >
+                <CardHeader className="space-y-1 pb-4 text-center">
+                  <motion.div
+                    initial={{ scale: 0.5, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+                    className="flex justify-center mb-2"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-green-500/15 flex items-center justify-center">
+                      <CheckCircle2 className="w-8 h-8 text-green-500" />
+                    </div>
+                  </motion.div>
+                  <CardTitle className="text-xl">Check your email</CardTitle>
+                  <CardDescription>
+                    We've sent a password reset link to{' '}
+                    <span className="font-medium text-foreground">{sentEmail}</span>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-xs text-muted-foreground text-center">
+                    Didn't receive the email? Check your spam folder, or try again with a different address.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      forgotForm.reset()
+                      setView('forgot')
+                    }}
+                  >
+                    Try a different email
+                  </Button>
+                  <Button
+                    type="button"
+                    className="w-full"
+                    onClick={() => {
+                      loginForm.reset()
+                      forgotForm.reset()
+                      setView('login')
+                    }}
+                  >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to Sign In
+                  </Button>
+                </CardContent>
+              </motion.div>
+            )}
+
+          </AnimatePresence>
         </Card>
 
         <p className="text-center text-xs text-muted-foreground mt-6">
-          By continuing, you agree to our Terms of Service and Privacy Policy
+          Restricted access — authorized personnel only
         </p>
       </motion.div>
     </div>

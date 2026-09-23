@@ -16,9 +16,7 @@ const AnalyticsPage = lazy(() => import('@/pages/analytics-page').then(m => ({ d
 const MarketingPage = lazy(() => import('@/pages/marketing-page').then(m => ({ default: m.MarketingPage })))
 const ReportsPage = lazy(() => import('@/pages/reports-page').then(m => ({ default: m.ReportsPage })))
 const SettingsPage = lazy(() => import('@/pages/settings-page').then(m => ({ default: m.SettingsPage })))
-const CustomerSite = lazy(() => import('@/pages/customer-site').then(m => ({ default: m.CustomerSite })))
-const CustomerBookingPage = lazy(() => import('@/pages/customer-booking-page').then(m => ({ default: m.CustomerBookingPage })))
-const CustomerDashboardPage = lazy(() => import('@/pages/customer-dashboard-page').then(m => ({ default: m.CustomerDashboardPage })))
+const InventoryPage = lazy(() => import('@/pages/inventory-page').then(m => ({ default: m.InventoryPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,6 +31,7 @@ const adminChildren = [
   { index: true, element: <Navigate to="/admin/dashboard" replace /> },
   { path: 'dashboard', element: <Suspense fallback={<PageLoadingState />}><DashboardPage /></Suspense> },
   { path: 'bookings', element: <Suspense fallback={<PageLoadingState />}><BookingPage /></Suspense> },
+  { path: 'inventory', element: <Suspense fallback={<PageLoadingState />}><InventoryPage /></Suspense> },
   { path: 'accounts', element: <Suspense fallback={<PageLoadingState />}><AccountsPage /></Suspense> },
   { path: 'customers', element: <Suspense fallback={<PageLoadingState />}><CustomersPage /></Suspense> },
   { path: 'analytics', element: <Suspense fallback={<PageLoadingState />}><AnalyticsPage /></Suspense> },
@@ -42,9 +41,7 @@ const adminChildren = [
 ]
 
 const router = createBrowserRouter([
-  { path: '/', element: <Suspense fallback={<PageLoadingState />}><CustomerSite /></Suspense> },
-  { path: '/book', element: <Suspense fallback={<PageLoadingState />}><CustomerBookingPage /></Suspense> },
-  { path: '/my-bookings', element: <Suspense fallback={<PageLoadingState />}><CustomerDashboardPage /></Suspense> },
+  { path: '/', element: <Navigate to="/admin/dashboard" replace /> },
   { path: '/login', element: <Suspense fallback={<PageLoadingState />}><LoginPage /></Suspense> },
   { path: '/dashboard', element: <Navigate to="/admin/dashboard" replace /> },
   { path: '/bookings', element: <Navigate to="/admin/bookings" replace /> },

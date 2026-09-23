@@ -21,6 +21,8 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+import { ensureUserExists } from '@/lib/ensure-user-exists'
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -40,11 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (mounted) {
           if (session?.user) {
-            const { data: profile } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', session.user.id)
-              .single()
+            const profile = await ensureUserExists(session.user)
 
             setState({
               user: session.user,
@@ -83,11 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!mounted) return
 
         if (session?.user) {
-          const { data: profile } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .single()
+          const profile = await ensureUserExists(session.user)
 
           setState({
             user: session.user,

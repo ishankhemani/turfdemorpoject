@@ -7,26 +7,19 @@ import {
   Area,
   BarChart,
   Bar,
-  PieChart,
-  Pie,
-  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from 'recharts'
-import { useMonthlyData, useDashboardStats } from '@/services/dashboard-service'
-import { useAreaStats } from '@/services/customers-service'
-import { useTodayBookings } from '@/services/dashboard-service'
+import { useMonthlyData, useDashboardStats, useBookings, useTodayBookings } from '@/services/dashboard-service'
+import { useAreaStats, useCustomers } from '@/services/customers-service'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { LoadingState, PageLoadingState } from '@/components/common/loading'
-import { BarChart3, TrendingUp, TrendingDown, Users, Calendar, Clock } from 'lucide-react'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { PageLoadingState } from '@/components/common/loading'
+import { Users } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16']
 
 export function AnalyticsPage() {
   const [period, setPeriod] = useState<'week' | 'month' | 'year'>('month')
@@ -34,6 +27,8 @@ export function AnalyticsPage() {
   const { data: stats } = useDashboardStats('month')
   const { data: areaStats } = useAreaStats()
   const { data: todayBookings } = useTodayBookings()
+  const { data: customers = [] } = useCustomers()
+  const { data: allBookings = [] } = useBookings()
 
   if (monthlyLoading) {
     return <PageLoadingState />
@@ -50,23 +45,29 @@ export function AnalyticsPage() {
       .map(([time, count]) => ({ time, count }))
   })()
 
-  const dayAnalysis = [
-    { day: 'Mon', bookings: 12 },
-    { day: 'Tue', bookings: 8 },
-    { day: 'Wed', bookings: 15 },
-    { day: 'Thu', bookings: 10 },
-    { day: 'Fri', bookings: 18 },
-    { day: 'Sat', bookings: 25 },
-    { day: 'Sun', bookings: 22 },
-  ]
+  const dayAnalysis = (() => {
+    const dayCounts: Record<string, number> = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 }
+    const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    allBookings.forEach((b) => {
+      if (b.booking_date) {
+        const d = new Date(b.booking_date)
+        const dayName = daysMap[d.getDay()]
+        if (dayName && dayCounts[dayName] !== undefined) {
+          dayCounts[dayName]++
+        }
+      }
+    })
+    return Object.entries(dayCounts).map(([day, bookings]) => ({ day, bookings }))
+  })()
 
-  const topCustomers = [
-    { name: 'John Doe', bookings: 15, spent: 45000 },
-    { name: 'Jane Smith', bookings: 12, spent: 38000 },
-    { name: 'Mike Johnson', bookings: 10, spent: 32000 },
-    { name: 'Sarah Wilson', bookings: 8, spent: 25000 },
-    { name: 'David Brown', bookings: 6, spent: 18000 },
-  ]
+  const topCustomers = [...customers]
+    .sort((a, b) => (b.total_spent || 0) - (a.total_spent || 0))
+    .slice(0, 5)
+    .map((c) => ({
+      name: c.name,
+      bookings: c.total_bookings,
+      spent: c.total_spent,
+    }))
 
   return (
     <div className="space-y-6">
@@ -135,7 +136,7 @@ export function AnalyticsPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Busiest Time Slots</CardTitle>
@@ -143,7 +144,7 @@ export function AnalyticsPage() {
           <CardContent>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={slotAnalysis.length > 0 ? slotAnalysis : [{ time: '18:00', count: 5 }]}>
+                <BarChart data={slotAnalysis.length > 0 ? slotAnalysis : [{ time: '18:00', count: 0 }]}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
@@ -173,35 +174,6 @@ export function AnalyticsPage() {
             </div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Area-wise Footfall</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={areaStats?.slice(0, 6) || [{ area: 'Ground A', bookings: 10 }]}
-                    dataKey="bookings"
-                    nameKey="area"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    innerRadius={50}
-                    paddingAngle={2}
-                  >
-                    {(areaStats?.slice(0, 6) || [{ area: 'Ground A', bookings: 10 }]).map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       <Card>
@@ -209,28 +181,35 @@ export function AnalyticsPage() {
           <CardTitle className="text-base">Top Customers</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {topCustomers.map((customer, index) => (
-              <motion.div
-                key={customer.name}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
-                className="flex items-center justify-between p-3 rounded-xl bg-muted/50"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold">
-                    {index + 1}
+          {topCustomers.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground text-sm flex flex-col items-center justify-center gap-2">
+              <Users className="w-8 h-8 opacity-40" />
+              <span>No customer records found yet. Customers will appear here automatically when bookings are created.</span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {topCustomers.map((customer, index) => (
+                <motion.div
+                  key={customer.name}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  className="flex items-center justify-between p-3 rounded-xl bg-muted/50"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold">
+                      {index + 1}
+                    </div>
+                    <div>
+                      <p className="font-medium">{customer.name}</p>
+                      <p className="text-xs text-muted-foreground">{customer.bookings} bookings</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium">{customer.name}</p>
-                    <p className="text-xs text-muted-foreground">{customer.bookings} bookings</p>
-                  </div>
-                </div>
-                <p className="font-semibold text-success">{formatCurrency(customer.spent)}</p>
-              </motion.div>
-            ))}
-          </div>
+                  <p className="font-semibold text-success">{formatCurrency(customer.spent)}</p>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -238,3 +217,4 @@ export function AnalyticsPage() {
 }
 
 const timeSlots = ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00']
+

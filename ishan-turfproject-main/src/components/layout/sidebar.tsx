@@ -22,6 +22,7 @@ import {
   ChevronRight,
   Menu,
   X,
+  Package,
 } from 'lucide-react'
 
 interface NavItem {
@@ -34,6 +35,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { title: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
   { title: 'Bookings', href: '/admin/bookings', icon: CalendarDays },
+  { title: 'Inventory', href: '/admin/inventory', icon: Package },
   { title: 'Accounts', href: '/admin/accounts', icon: Wallet },
   { title: 'Customers', href: '/admin/customers', icon: Users },
   { title: 'Analytics', href: '/admin/analytics', icon: BarChart3 },

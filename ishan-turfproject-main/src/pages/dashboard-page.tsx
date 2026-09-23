@@ -35,6 +35,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { formatCurrency, formatTime, formatSlotRange } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -52,8 +53,11 @@ const item = {
 }
 
 export function DashboardPage() {
-  const [dateFilter, setDateFilter] = useState<'day' | 'month' | 'year'>('month')
-  const { data: stats, isLoading: statsLoading } = useDashboardStats(dateFilter)
+  const [dateFilter, setDateFilter] = useState<'day' | 'month' | 'custom'>('month')
+  const [customStartDate, setCustomStartDate] = useState<string>(new Date().toISOString().split('T')[0])
+  const [customEndDate, setCustomEndDate] = useState<string>(new Date().toISOString().split('T')[0])
+
+  const { data: stats, isLoading: statsLoading } = useDashboardStats(dateFilter, customStartDate, customEndDate)
   const { data: monthlyData, isLoading: monthlyLoading } = useMonthlyData()
   const { data: todayBookings, isLoading: bookingsLoading } = useTodayBookings()
 
@@ -70,20 +74,44 @@ export function DashboardPage() {
             Overview of your turf business
           </p>
         </div>
-        <Tabs value={dateFilter} onValueChange={(v) => setDateFilter(v as 'day' | 'month' | 'year')}>
-          <TabsList>
-            <TabsTrigger value="day">Today</TabsTrigger>
-            <TabsTrigger value="month">Month</TabsTrigger>
-            <TabsTrigger value="year">Year</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3">
+          {dateFilter === 'custom' && (
+            <div className="flex flex-wrap items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-800 text-xs w-full sm:w-auto">
+              <div className="flex items-center gap-1.5 flex-1">
+                <span className="text-slate-400">From:</span>
+                <Input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="h-8 bg-slate-950 border-slate-700 text-white text-xs w-full sm:w-36"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 flex-1">
+                <span className="text-slate-400">To:</span>
+                <Input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="h-8 bg-slate-950 border-slate-700 text-white text-xs w-full sm:w-36"
+                />
+              </div>
+            </div>
+          )}
+          <Tabs value={dateFilter} onValueChange={(v) => setDateFilter(v as 'day' | 'month' | 'custom')} className="w-full sm:w-auto">
+            <TabsList className="bg-slate-800/80 w-full justify-start overflow-x-auto">
+              <TabsTrigger value="day" className="flex-1 sm:flex-initial">Today</TabsTrigger>
+              <TabsTrigger value="month" className="flex-1 sm:flex-initial">Monthly</TabsTrigger>
+              <TabsTrigger value="custom" className="flex-1 sm:flex-initial">Custom Date</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       <motion.div
         variants={container}
         initial="hidden"
         animate="show"
-        className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
+        className="grid gap-3 grid-cols-2 lg:grid-cols-4"
       >
         <motion.div variants={item}>
           <StatCard
@@ -121,6 +149,45 @@ export function DashboardPage() {
               (stats?.profit || 0) >= 0 ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
             )}
             delay={3}
+          />
+        </motion.div>
+      </motion.div>
+
+      {/* Revenue Breakdown by Payment Mode */}
+      <motion.div
+        variants={container}
+        initial="hidden"
+        animate="show"
+        className="grid gap-3 grid-cols-1 sm:grid-cols-3"
+      >
+        <motion.div variants={item}>
+          <StatCard
+            title="Online Revenue"
+            value={formatCurrency(stats?.onlineRevenue || 0)}
+            icon={TrendingUp}
+            iconClassName="bg-blue-500/10 text-blue-400"
+            description="UPI, Online Transfer, App"
+            delay={4}
+          />
+        </motion.div>
+        <motion.div variants={item}>
+          <StatCard
+            title="Offline / Cash Revenue"
+            value={formatCurrency(stats?.offlineRevenue || 0)}
+            icon={Wallet}
+            iconClassName="bg-amber-500/10 text-amber-400"
+            description="Cash & In-person payments"
+            delay={5}
+          />
+        </motion.div>
+        <motion.div variants={item}>
+          <StatCard
+            title="Add-on & Drinks Sales"
+            value={formatCurrency(stats?.addOnsRevenue || 0)}
+            icon={IndianRupee}
+            iconClassName="bg-emerald-500/10 text-emerald-400"
+            description={`${stats?.bottleSalesQty || 0} bottle(s) & drinks sold`}
+            delay={6}
           />
         </motion.div>
       </motion.div>

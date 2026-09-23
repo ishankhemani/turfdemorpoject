@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/use-auth'
+import { ensureUserExists } from '@/lib/ensure-user-exists'
 import type { Expense, Labour, LabourPayment, Liability, LiabilityPayment, Customer } from '@/types/database'
 
 export function useExpenses() {
@@ -31,6 +32,7 @@ export function useCreateExpense() {
   return useMutation({
     mutationFn: async (expense: Omit<Expense, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
       if (!user) throw new Error('Not authenticated')
+      await ensureUserExists(user)
 
       const { data, error } = await supabase
         .from('expenses')

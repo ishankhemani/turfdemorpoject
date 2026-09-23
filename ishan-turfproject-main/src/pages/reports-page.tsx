@@ -1,24 +1,33 @@
-import { useState } from 'react'
-import { useMonthlyData, useBookings } from '@/services/dashboard-service'
+import React, { useState } from 'react'
+import { useMonthlyData, useDailyData, useBookings } from '@/services/dashboard-service'
 import { useExpenses, useLabour, useLiabilities } from '@/services/accounts-service'
 import { useCustomers } from '@/services/customers-service'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Input } from '@/components/ui/input'
 import { PageLoadingState } from '@/components/common/loading'
-import { Download, Calendar, IndianRupee, Users, TrendingUp } from 'lucide-react'
+import { Download, Calendar, IndianRupee, Users, TrendingUp, Search } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 export function ReportsPage() {
-  const [reportType, setReportType] = useState<'daily' | 'monthly' | 'yearly'>('monthly')
+  const [reportType, setReportType] = useState<'daily' | 'monthly' | 'custom'>('daily')
+  const [customStartDate, setCustomStartDate] = useState<string>(new Date().toISOString().split('T')[0])
+  const [customEndDate, setCustomEndDate] = useState<string>(new Date().toISOString().split('T')[0])
+
   const { data: monthlyData, isLoading: monthlyLoading } = useMonthlyData()
+  const { data: dailyData = [], isLoading: dailyLoading } = useDailyData(
+    reportType === 'custom' ? undefined : 10,
+    reportType === 'custom' ? customStartDate : undefined,
+    reportType === 'custom' ? customEndDate : undefined
+  )
   const { data: bookings } = useBookings()
   const { data: expenses } = useExpenses()
   const { data: labour } = useLabour()
   const { data: liabilities } = useLiabilities()
   const { data: customers } = useCustomers()
 
-  if (monthlyLoading) {
+  if (monthlyLoading || dailyLoading) {
     return <PageLoadingState />
   }
 
@@ -33,7 +42,16 @@ export function ReportsPage() {
     const reportWindow = window.open('', '_blank', 'noopener,noreferrer')
     if (!reportWindow) return
 
-    const rows = (monthlyData || []).map((month) => `
+    const dailyRows = (dailyData || []).map((day) => `
+      <tr>
+        <td>${day.date}</td>
+        <td>${day.totalBookings}</td>
+        <td>${formatCurrency(day.revenue)}</td>
+        <td>${formatCurrency(day.expenses)}</td>
+        <td>${formatCurrency(day.profit)}</td>
+      </tr>`).join('')
+
+    const monthlyRows = (monthlyData || []).map((month) => `
       <tr>
         <td>${month.month}</td>
         <td>${formatCurrency(month.revenue)}</td>
@@ -87,10 +105,15 @@ export function ReportsPage() {
     <tr><td>Labour Paid</td><td>${formatCurrency(labourPayments)}</td></tr>
     <tr><td>Outstanding Liabilities</td><td>${formatCurrency(outstandingLiabilities)} (tracker only, not deducted from profit)</td></tr>
   </table>
+
+  <h2>Daily Summary (${reportType === 'custom' ? `${customStartDate} to ${customEndDate}` : 'Recent Days'})</h2>
+  <table><thead><tr><th>Date</th><th>Bookings</th><th>Revenue</th><th>Expenses</th><th>Profit</th></tr></thead><tbody>${dailyRows}</tbody></table>
+
   <h2>Monthly Financial Table</h2>
-  <table><thead><tr><th>Month</th><th>Revenue</th><th>Expenses + Labour</th><th>Profit</th></tr></thead><tbody>${rows}</tbody></table>
-  <div class="note">Profit formula used: paid bookings + other income - expenses - labour. Liabilities are shown separately as pending payment trackers and never reduce profit.</div>
-  <div class="footer">Use your browser Save as PDF option from the print dialog. This report is formatted for A4 PDF export.</div>
+  <table><thead><tr><th>Month</th><th>Revenue</th><th>Expenses + Labour</th><th>Profit</th></tr></thead><tbody>${monthlyRows}</tbody></table>
+
+  <div class="note">Profit formula used: paid bookings + other income - expenses - labour.</div>
+  <div class="footer">Formatted for A4 PDF export. Use browser print options.</div>
   <script>window.onload = () => { window.print(); };</script>
 </body>
 </html>`)
@@ -100,157 +123,185 @@ export function ReportsPage() {
   const totalRevenue = (monthlyData || []).reduce((sum, m) => sum + m.revenue, 0)
   const totalExpenses = (monthlyData || []).reduce((sum, m) => sum + m.expenses, 0)
   const labourPayments = (labour || []).reduce((sum, l) => sum + (l.payments || []).reduce((s, p) => s + Number(p.amount), 0), 0)
-  const outstandingLiabilities = (liabilities || []).filter(l => !l.is_completed).reduce((s, l) => s + Number(l.outstanding_amount), 0)
+  const outstandingLiabilities = (liabilities || []).filter((l) => !l.is_completed).reduce((s, l) => s + Number(l.outstanding_amount), 0)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
-          <p className="text-muted-foreground text-sm">Generate and download business reports</p>
+          <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-2">
+            <Calendar className="w-8 h-8 text-emerald-400" /> Business Reports & Summaries
+          </h1>
+          <p className="text-slate-400 text-sm mt-1">View daily breakdown, monthly performance, and custom date range reports.</p>
         </div>
-        <div className="flex gap-2">
-          <Tabs value={reportType} onValueChange={(v) => setReportType(v as 'daily' | 'monthly' | 'yearly')}>
-            <TabsList>
-              <TabsTrigger value="daily">Daily</TabsTrigger>
-              <TabsTrigger value="monthly">Monthly</TabsTrigger>
-              <TabsTrigger value="yearly">Yearly</TabsTrigger>
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 w-full sm:w-auto">
+          {reportType === 'custom' && (
+            <div className="flex flex-wrap items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-800 text-xs w-full sm:w-auto">
+              <div className="flex items-center gap-1.5 flex-1">
+                <span className="text-slate-400">From:</span>
+                <Input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="h-8 bg-slate-950 border-slate-700 text-white text-xs w-full sm:w-36"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 flex-1">
+                <span className="text-slate-400">To:</span>
+                <Input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="h-8 bg-slate-950 border-slate-700 text-white text-xs w-full sm:w-36"
+                />
+              </div>
+            </div>
+          )}
+          <Tabs value={reportType} onValueChange={(v) => setReportType(v as 'daily' | 'monthly' | 'custom')} className="w-full sm:w-auto">
+            <TabsList className="bg-slate-800/80 w-full justify-start overflow-x-auto">
+              <TabsTrigger value="daily" className="flex-1 sm:flex-initial data-[state=active]:bg-emerald-600">Daily Summary</TabsTrigger>
+              <TabsTrigger value="monthly" className="flex-1 sm:flex-initial data-[state=active]:bg-emerald-600">Monthly Summary</TabsTrigger>
+              <TabsTrigger value="custom" className="flex-1 sm:flex-initial data-[state=active]:bg-emerald-600">Custom Search</TabsTrigger>
             </TabsList>
           </Tabs>
-          <Button onClick={generateReport}>
-            <Download className="mr-2 h-4 w-4" />
-            Download
+          <Button onClick={generateReport} className="bg-emerald-600 hover:bg-emerald-500 text-white w-full sm:w-auto">
+            <Download className="mr-2 h-4 w-4" /> Download PDF
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        <Card className="bg-slate-900/80 border-slate-800">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-success/10">
-                <TrendingUp className="h-6 w-6 text-success" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-400">
+                <TrendingUp className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total Revenue</p>
-                <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
+                <p className="text-xs text-slate-400">Total Revenue</p>
+                <p className="text-2xl font-bold text-white">{formatCurrency(totalRevenue)}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="bg-slate-900/80 border-slate-800">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10">
-                <IndianRupee className="h-6 w-6 text-destructive" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-red-950/80 border border-red-800 text-red-400">
+                <IndianRupee className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total Expenses</p>
-                <p className="text-2xl font-bold">{formatCurrency(totalExpenses + labourPayments)}</p>
+                <p className="text-xs text-slate-400">Total Expenses</p>
+                <p className="text-2xl font-bold text-white">{formatCurrency(totalExpenses + labourPayments)}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="bg-slate-900/80 border-slate-800">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                <Users className="h-6 w-6 text-primary" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-950/80 border border-blue-800 text-blue-400">
+                <Users className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total Customers</p>
-                <p className="text-2xl font-bold">{(customers || []).length}</p>
+                <p className="text-xs text-slate-400">Total Customers</p>
+                <p className="text-2xl font-bold text-white">{(customers || []).length}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="bg-slate-900/80 border-slate-800">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-warning/10">
-                <Calendar className="h-6 w-6 text-warning" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-950/80 border border-amber-800 text-amber-400">
+                <Calendar className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total Bookings</p>
-                <p className="text-2xl font-bold">{(bookings || []).length}</p>
+                <p className="text-xs text-slate-400">Total Bookings</p>
+                <p className="text-2xl font-bold text-white">{(bookings || []).length}</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Revenue Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                <span className="text-sm">Total Revenue</span>
-                <span className="font-bold text-success">{formatCurrency(totalRevenue)}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                <span className="text-sm">Booking Payments</span>
-                <span className="font-medium">{formatCurrency(totalRevenue)}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                <span className="text-sm">Pending Payments</span>
-                <span className="font-medium text-warning">{formatCurrency((bookings || []).filter(b => b.payment_status === 'pending').reduce((s, b) => s + Number(b.amount), 0))}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Expense Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                <span className="text-sm">Total Expenses</span>
-                <span className="font-bold text-destructive">{formatCurrency(totalExpenses + labourPayments)}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                <span className="text-sm">General Expenses</span>
-                <span className="font-medium">{formatCurrency((expenses || []).reduce((s, e) => s + Number(e.amount), 0))}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                <span className="text-sm">Labour Payments</span>
-                <span className="font-medium">{formatCurrency(labourPayments)}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                <span className="text-sm">Outstanding Liabilities</span>
-                <span className="font-medium text-warning">{formatCurrency(outstandingLiabilities)}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Monthly Summary</CardTitle>
+      {/* Daily Summary Table */}
+      <Card className="bg-slate-900/80 border-slate-800 shadow-xl overflow-hidden">
+        <CardHeader className="border-b border-slate-800 pb-4 flex flex-row items-center justify-between">
+          <CardTitle className="text-lg text-white flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-emerald-400" /> Daily Financial Summary
+            {reportType === 'custom' ? ` (${customStartDate} to ${customEndDate})` : ' (Last 10 Days)'}
+          </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-2">
-            <div className="grid grid-cols-4 text-xs font-medium text-muted-foreground pb-2 border-b">
-              <span>Month</span>
-              <span className="text-right">Revenue</span>
-              <span className="text-right">Expenses</span>
-              <span className="text-right">Profit</span>
-            </div>
-            {(monthlyData || []).map((month) => (
-              <div key={month.month} className="grid grid-cols-4 text-sm py-2 border-b border-muted">
-                <span className="font-medium">{month.month}</span>
-                <span className="text-right text-success">{formatCurrency(month.revenue)}</span>
-                <span className="text-right text-destructive">{formatCurrency(month.expenses)}</span>
-                <span className={month.profit >= 0 ? 'text-right font-medium text-success' : 'text-right font-medium text-destructive'}>
-                  {formatCurrency(month.profit)}
-                </span>
-              </div>
-            ))}
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-slate-300">
+              <thead className="bg-slate-950/80 text-xs uppercase text-slate-400 font-semibold border-b border-slate-800">
+                <tr>
+                  <th className="px-6 py-4">Date</th>
+                  <th className="px-6 py-4">Bookings Count</th>
+                  <th className="px-6 py-4">Revenue</th>
+                  <th className="px-6 py-4">Expenses</th>
+                  <th className="px-6 py-4 text-right">Daily Profit</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {dailyData.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                      No daily records found for the selected range.
+                    </td>
+                  </tr>
+                ) : (
+                  dailyData.map((day) => (
+                    <tr key={day.date} className="hover:bg-slate-800/40 transition-colors">
+                      <td className="px-6 py-4 font-semibold text-white">{day.date}</td>
+                      <td className="px-6 py-4 text-slate-300">{day.totalBookings} bookings</td>
+                      <td className="px-6 py-4 text-emerald-400 font-bold">{formatCurrency(day.revenue)}</td>
+                      <td className="px-6 py-4 text-red-400 font-medium">{formatCurrency(day.expenses)}</td>
+                      <td className={day.profit >= 0 ? 'px-6 py-4 text-right font-bold text-emerald-400' : 'px-6 py-4 text-right font-bold text-red-400'}>
+                        {formatCurrency(day.profit)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Monthly Summary Table */}
+      <Card className="bg-slate-900/80 border-slate-800 shadow-xl overflow-hidden">
+        <CardHeader className="border-b border-slate-800 pb-4">
+          <CardTitle className="text-lg text-white flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-emerald-400" /> Monthly Financial Breakdown
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-slate-300">
+              <thead className="bg-slate-950/80 text-xs uppercase text-slate-400 font-semibold border-b border-slate-800">
+                <tr>
+                  <th className="px-6 py-4">Month</th>
+                  <th className="px-6 py-4">Revenue</th>
+                  <th className="px-6 py-4">Expenses + Labour</th>
+                  <th className="px-6 py-4 text-right">Monthly Profit</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {(monthlyData || []).map((month) => (
+                  <tr key={month.month} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="px-6 py-4 font-semibold text-white">{month.month}</td>
+                    <td className="px-6 py-4 text-emerald-400 font-bold">{formatCurrency(month.revenue)}</td>
+                    <td className="px-6 py-4 text-red-400 font-medium">{formatCurrency(month.expenses)}</td>
+                    <td className={month.profit >= 0 ? 'px-6 py-4 text-right font-bold text-emerald-400' : 'px-6 py-4 text-right font-bold text-red-400'}>
+                      {formatCurrency(month.profit)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </CardContent>
       </Card>

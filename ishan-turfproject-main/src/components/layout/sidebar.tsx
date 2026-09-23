@@ -224,22 +224,22 @@ export function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }: 
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setMobileOpen(false)}
-              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+              className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm lg:hidden touch-manipulation"
             />
             <motion.aside
               initial={{ x: -280 }}
               animate={{ x: 0 }}
               exit={{ x: -280 }}
               transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="fixed left-0 top-0 z-50 h-screen w-[280px] bg-sidebar lg:hidden"
+              className="fixed left-0 top-0 z-[100] h-screen w-[280px] bg-sidebar lg:hidden pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] touch-manipulation"
             >
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setMobileOpen(false)}
-                className="absolute right-2 top-4 z-50"
+                className="absolute right-2 top-4 z-[110] min-h-[44px] min-w-[44px] touch-manipulation"
               >
-                <X className="h-5 w-5" />
+                <X className="h-6 w-6" />
               </Button>
               {sidebarContent}
             </motion.aside>

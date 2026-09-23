@@ -115,26 +115,6 @@ export function useInventoryItems() {
           return getLocalInventory()
         }
 
-        // ── One-time migration: reset all quantities to 0 ─────────────────
-        // Runs once per user session (flag stored in localStorage).
-        // Wipes any dummy/seeded quantities so the owner starts fresh.
-        const migrationKey = `turf_inv_qty_reset_${user.id}`
-        const alreadyReset = localStorage.getItem(migrationKey) === INVENTORY_VERSION
-
-        if (!alreadyReset) {
-          const ids = (data as InventoryItem[]).map(i => i.id)
-          if (ids.length > 0) {
-            await supabase
-              .from('inventory_items')
-              .update({ quantity: 0, last_edited: new Date().toISOString() })
-              .in('id', ids)
-              .eq('user_id', user.id)
-          }
-          localStorage.setItem(migrationKey, INVENTORY_VERSION)
-          // Return data with quantities zeroed locally so UI updates instantly
-          return (data as InventoryItem[]).map(i => ({ ...i, quantity: 0 }))
-        }
-
         return data as InventoryItem[]
       } catch (e) {
         console.warn('Using local inventory fallback', e)
@@ -373,7 +353,7 @@ export function useSyncBookingInventorySales() {
             if (currentItems) {
               for (const addOn of activeAddOns) {
                 const matched = currentItems.find(
-                  (i: InventoryItem) => i.name.toLowerCase() === addOn.name.toLowerCase()
+                  (i: InventoryItem) => i.name.trim().toLowerCase() === addOn.name.trim().toLowerCase()
                 )
                 if (matched) {
                   const newQty = Math.max(0, matched.quantity - addOn.qty)
@@ -396,7 +376,7 @@ export function useSyncBookingInventorySales() {
       const localInv = getLocalInventory()
 
       oldBookingSales.forEach((oldSale) => {
-        const idx = localInv.findIndex((i) => i.name.toLowerCase() === oldSale.item_name.toLowerCase())
+        const idx = localInv.findIndex((i) => i.name.trim().toLowerCase() === oldSale.item_name.trim().toLowerCase())
         if (idx >= 0) {
           localInv[idx].quantity += Number(oldSale.qty_sold || 0)
         }
@@ -417,7 +397,7 @@ export function useSyncBookingInventorySales() {
             booking_id: bookingId,
             user_id: user?.id || 'local',
           })
-          const idx = localInv.findIndex((i) => i.name.toLowerCase() === a.name.toLowerCase())
+          const idx = localInv.findIndex((i) => i.name.trim().toLowerCase() === a.name.trim().toLowerCase())
           if (idx >= 0) {
             localInv[idx].quantity = Math.max(0, localInv[idx].quantity - a.qty)
           }

@@ -23,6 +23,38 @@ const schema = z.object({
 
 type CustomerForm = z.infer<typeof schema>
 
+function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0
+  const clean = timeStr.trim().toUpperCase()
+  const isPM = clean.includes('PM')
+  const isAM = clean.includes('AM')
+  const numOnly = clean.replace(/(AM|PM)/g, '').trim()
+  const parts = numOnly.split(':')
+  let hours = parseInt(parts[0], 10) || 0
+  const minutes = parseInt(parts[1], 10) || 0
+
+  if (isPM && hours < 12) hours += 12
+  if (isAM && hours === 12) hours = 0
+
+  return hours * 60 + minutes
+}
+
+function extractTimeInterval(rawTime: string): { start: number; end: number } {
+  if (rawTime.includes('-')) {
+    const [startStr, endStr] = rawTime.split('-')
+    const start = parseTimeToMinutes(startStr)
+    let end = parseTimeToMinutes(endStr)
+    if (end <= start) end += 24 * 60
+    return { start, end }
+  }
+  const start = parseTimeToMinutes(rawTime)
+  return { start, end: start + 60 }
+}
+
+function doIntervalsOverlap(a: { start: number; end: number }, b: { start: number; end: number }): boolean {
+  return a.start < b.end && b.start < a.end
+}
+
 const todayKey = new Date().toISOString().split('T')[0]
 
 export function CustomerBookingPage() {
@@ -48,10 +80,19 @@ export function CustomerBookingPage() {
 
   const availableSlots = useMemo(() => {
     return slots.filter((item) => item.is_active).map((item) => {
-      const isBooked = busy.some((booking) => booking.booking_time === item.time && booking.area === area)
+      const firstTimePart = item.time.includes('-') ? item.time.split('-')[0] : item.time
+      const slotStart = parseTimeToMinutes(firstTimePart)
+      const slotEnd = slotStart + duration
+
+      const isBooked = busy.some((booking) => {
+        if (booking.area.trim().toLowerCase() !== area.trim().toLowerCase()) return false
+        const existingInterval = extractTimeInterval(booking.booking_time)
+        return doIntervalsOverlap({ start: slotStart, end: slotEnd }, existingInterval)
+      })
+
       return { ...item, isBooked }
     })
-  }, [slots, busy, area])
+  }, [slots, busy, area, duration])
 
   const handleSubmit = form.handleSubmit(async (values) => {
     if (!slot) {

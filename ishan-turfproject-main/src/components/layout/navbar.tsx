@@ -29,14 +29,18 @@ export function Navbar({ onMenuClick, title }: NavbarProps) {
   useAdminRealtimeSync()
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/80 backdrop-blur-xl px-4 lg:px-6">
+    <header className="sticky top-0 z-30 flex min-h-[4rem] items-center gap-4 border-b bg-background/80 backdrop-blur-xl px-4 lg:px-6 pt-[env(safe-area-inset-top,0px)]">
       <Button
         variant="ghost"
         size="icon"
-        className="lg:hidden"
-        onClick={onMenuClick}
+        className="lg:hidden shrink-0 touch-manipulation min-h-[44px] min-w-[44px] active:scale-95 transition-transform"
+        onClick={(e) => {
+          e.preventDefault()
+          onMenuClick()
+        }}
+        aria-label="Toggle Menu"
       >
-        <Menu className="h-5 w-5" />
+        <Menu className="h-6 w-6 text-foreground" />
       </Button>
 
       <div className="flex-1">

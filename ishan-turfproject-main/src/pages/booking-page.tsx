@@ -43,14 +43,52 @@ import type { Booking, AddOnItem } from '@/types/database'
 const sports = ['Cricket', 'Football', 'Badminton', 'Tennis', 'Volleyball', 'Basketball']
 const areas = ['Ground A', 'Ground B', 'Ground C', 'Court 1', 'Court 2', 'Court 3']
 
-// 30-minute time slot choices from 06:00 AM to 11:30 PM
+// 24-hour 30-minute time slot choices from 00:00 to 23:30
 const SLOT_CHOICES: string[] = []
-for (let h = 6; h <= 23; h++) {
+for (let h = 0; h <= 23; h++) {
   const hourStr = h < 10 ? `0${h}` : `${h}`
   SLOT_CHOICES.push(`${hourStr}:00`)
-  if (h !== 23) {
-    SLOT_CHOICES.push(`${hourStr}:30`)
+  SLOT_CHOICES.push(`${hourStr}:30`)
+}
+
+export function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0
+  const clean = timeStr.trim().toUpperCase()
+  const isPM = clean.includes('PM')
+  const isAM = clean.includes('AM')
+  const numOnly = clean.replace(/(AM|PM)/g, '').trim()
+  const parts = numOnly.split(':')
+  let hours = parseInt(parts[0], 10) || 0
+  const minutes = parseInt(parts[1], 10) || 0
+
+  if (isPM && hours < 12) hours += 12
+  if (isAM && hours === 12) hours = 0
+
+  return hours * 60 + minutes
+}
+
+export function extractTimeInterval(booking: { booking_time?: string; start_time?: string; end_time?: string }): { start: number; end: number } {
+  if (booking.start_time && booking.end_time) {
+    const start = parseTimeToMinutes(booking.start_time)
+    let end = parseTimeToMinutes(booking.end_time)
+    if (end <= start) end += 24 * 60
+    return { start, end }
   }
+
+  if (booking.booking_time && booking.booking_time.includes('-')) {
+    const [startStr, endStr] = booking.booking_time.split('-')
+    const start = parseTimeToMinutes(startStr)
+    let end = parseTimeToMinutes(endStr)
+    if (end <= start) end += 24 * 60
+    return { start, end }
+  }
+
+  const start = parseTimeToMinutes(booking.booking_time || '00:00')
+  return { start, end: start + 60 }
+}
+
+export function doIntervalsOverlap(a: { start: number; end: number }, b: { start: number; end: number }): boolean {
+  return a.start < b.end && b.start < a.end
 }
 
 function format12Hr(time24: string): string {
@@ -312,6 +350,32 @@ export function BookingPage() {
 
   const handleSubmit = async (data: BookingFormData) => {
     try {
+      // Check interval overlap against existing bookings
+      const proposedInterval = {
+        start: parseTimeToMinutes(data.start_time),
+        end: parseTimeToMinutes(data.end_time),
+      }
+      if (proposedInterval.end <= proposedInterval.start) {
+        proposedInterval.end += 24 * 60
+      }
+
+      const conflictingBooking = (allBookings || []).find((b) => {
+        if (editingBooking && b.id === editingBooking.id) return false
+        if (b.booking_date !== data.booking_date) return false
+        if (b.area.trim().toLowerCase() !== data.area.trim().toLowerCase()) return false
+        const existingInterval = extractTimeInterval(b)
+        return doIntervalsOverlap(proposedInterval, existingInterval)
+      })
+
+      if (conflictingBooking) {
+        toast({
+          variant: 'destructive',
+          title: 'Time Slot Conflict',
+          description: `Slot overlaps with an existing booking for ${conflictingBooking.customer_name} (${conflictingBooking.booking_time || conflictingBooking.start_time}).`,
+        })
+        return
+      }
+
       const activeAddOns = selectedAddOns.filter((a) => a.qty > 0)
       const formattedTime = `${data.start_time} - ${data.end_time}`
 

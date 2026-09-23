@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/stores/theme-store'
 import { AppLayout, ProtectedRoute } from '@/components/layout'
 import { Toaster } from '@/components/ui/toaster'
 import { PageLoadingState } from '@/components/common/loading'
+import { PwaInstallPrompt } from '@/components/common/pwa-install-prompt'
 
 const LoginPage = lazy(() => import('@/pages/login-page').then(m => ({ default: m.LoginPage })))
 const DashboardPage = lazy(() => import('@/pages/dashboard-page').then(m => ({ default: m.DashboardPage })))
@@ -69,6 +70,7 @@ function App() {
         <AuthProvider>
           <RouterProvider router={router} />
           <Toaster />
+          <PwaInstallPrompt />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

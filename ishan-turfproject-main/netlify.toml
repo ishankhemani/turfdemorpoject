@@ -2,7 +2,63 @@
   command = "npm run build"
   publish = "dist"
 
+# ─── SPA Routing ─────────────────────────────────────────────────────────────
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# ─── Security & CORS Headers ─────────────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # ── CORS (scoped to this origin only) ──────────────────────────────────
+    Access-Control-Allow-Origin      = "https://turfdemo.netlify.app"
+    Access-Control-Allow-Methods     = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    Access-Control-Allow-Headers     = "Content-Type, Authorization, X-Client-Info, apikey, X-Requested-With"
+    Access-Control-Max-Age           = "86400"
+
+    # ── Content Security Policy (XSS Prevention) ───────────────────────────
+    # Allows: self-hosted scripts/styles, Google Fonts, Supabase API + Realtime
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.supabase.co https://turfdemo.netlify.app; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://fonts.googleapis.com https://fonts.gstatic.com; media-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests;"
+
+    # ── Anti-Clickjacking ──────────────────────────────────────────────────
+    X-Frame-Options = "DENY"
+
+    # ── MIME-Type Sniffing Protection ──────────────────────────────────────
+    X-Content-Type-Options = "nosniff"
+
+    # ── Legacy XSS Filter ─────────────────────────────────────────────────
+    X-XSS-Protection = "1; mode=block"
+
+    # ── Referrer Policy ────────────────────────────────────────────────────
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+    # ── HSTS — Force HTTPS for 2 years ─────────────────────────────────────
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+
+    # ── Permissions Policy — restrict sensitive browser APIs ───────────────
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=()"
+
+    # ── Cross-Origin Policies ──────────────────────────────────────────────
+    Cross-Origin-Opener-Policy   = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+
+# ─── Static assets — long cache + immutable ──────────────────────────────────
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# ─── Service Worker — must NOT be cached ─────────────────────────────────────
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# ─── Manifest ────────────────────────────────────────────────────────────────
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type  = "application/manifest+json"
+    Cache-Control = "public, max-age=86400"

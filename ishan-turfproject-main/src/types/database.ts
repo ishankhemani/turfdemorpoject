@@ -89,7 +89,10 @@ export interface Labour extends BaseEntity {
   phone: string
   role: string
   user_id: string
+  /** Joined relation — present when fetched with labour_payments */
+  payments?: LabourPayment[]
 }
+
 
 export interface LabourPayment extends BaseEntity {
   labour_id: string

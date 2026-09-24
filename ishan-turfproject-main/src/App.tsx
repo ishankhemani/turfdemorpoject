@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AuthProvider } from '@/hooks/use-auth'
+import { AuthProvider, useAuth } from '@/hooks/use-auth'
 import { ThemeProvider } from '@/stores/theme-store'
 import { AppLayout, ProtectedRoute, StaffGuard } from '@/components/layout'
 import { Toaster } from '@/components/ui/toaster'

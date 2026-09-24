@@ -24,6 +24,7 @@ interface AuthContextType {
   isStaff: boolean
   isAdmin: boolean
   effectiveUserId: string | null
+  setRole: (role: 'admin' | 'staff') => Promise<void>
   signUp: (email: string, password: string, fullName: string) => Promise<void>
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
@@ -298,6 +299,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     : null
 
+  const setRole = async (newRole: 'admin' | 'staff') => {
+    if (state.rawUser) {
+      try {
+        await updateProfile({ role: newRole })
+      } catch (err) {
+        console.warn('Could not update role:', err)
+      }
+    }
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -307,6 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isStaff: isStaffAccount,
         isAdmin: !isStaffAccount,
         effectiveUserId,
+        setRole,
         signUp,
         signIn,
         signOut,

@@ -459,13 +459,15 @@ function invalidateBusinessQueries(queryClient: ReturnType<typeof useQueryClient
 }
 
 export function useCreateBooking() {
-  const { user } = useAuth()
+  const { user, rawUser } = useAuth()
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (booking: BookingWrite) => {
       const authUser = user || (await supabase.auth.getUser()).data?.user
       if (!authUser) throw new Error('Not authenticated. Please log in again.')
+
+      const actualAuthUid = rawUser?.id || authUser.id
 
       await ensureUserExists(authUser)
 
@@ -479,14 +481,25 @@ export function useCreateBooking() {
         area: targetArea,
       })
 
-      const payload = { ...booking, area: targetArea, sport: targetSport, user_id: authUser.id }
+      let targetUserId = authUser.id
+      let payload = { ...booking, area: targetArea, sport: targetSport, user_id: targetUserId }
 
-      // First attempt full payload
+      // 1. First attempt with shared project user_id
       let { data, error } = await supabase
         .from('bookings')
         .insert(payload)
         .select()
         .single()
+
+      // 2. If RLS blocked shared owner user_id, retry with actual auth.uid() (actualAuthUid)
+      if (error && (error.message?.includes('row-level security') || error.code === '42501')) {
+        console.warn('RLS blocked shared user_id, retrying insert with auth.uid()', actualAuthUid)
+        targetUserId = actualAuthUid
+        payload.user_id = actualAuthUid
+        const rlsRetry = await supabase.from('bookings').insert(payload).select().single()
+        data = rlsRetry.data
+        error = rlsRetry.error
+      }
 
       if (error) {
         if (
@@ -508,7 +521,6 @@ export function useCreateBooking() {
         const effectiveMode = booking.payment_mode || (booking.transaction_id || booking.source === 'website' ? 'online' : 'offline')
         const totalAmt = Number(booking.amount || 0)
 
-        // Build standard payload — exclude online_amount/offline_amount if schema doesn't have them
         const standardPayload: Record<string, any> = {
           customer_name: booking.customer_name,
           mobile_number: booking.mobile_number,
@@ -520,10 +532,9 @@ export function useCreateBooking() {
           payment_status: booking.payment_status,
           payment_mode: effectiveMode,
           notes: booking.notes || null,
-          user_id: authUser.id,
+          user_id: targetUserId,
         }
 
-        // Only include split-amount columns if schema likely has them
         if (!isSchemaError) {
           standardPayload.online_amount = booking.online_amount ?? (effectiveMode === 'split' ? Math.floor(totalAmt / 2) : effectiveMode === 'online' ? totalAmt : 0)
           standardPayload.offline_amount = booking.offline_amount ?? (effectiveMode === 'split' ? totalAmt - Math.floor(totalAmt / 2) : effectiveMode === 'offline' ? totalAmt : 0)
@@ -546,7 +557,6 @@ export function useCreateBooking() {
             )
           }
 
-          // If second attempt also fails on schema, try bare minimum payload
           if (
             fallbackRes.error.message?.includes('schema cache') ||
             fallbackRes.error.message?.includes('column') ||
@@ -562,7 +572,7 @@ export function useCreateBooking() {
               amount: booking.amount,
               payment_status: booking.payment_status,
               payment_mode: effectiveMode,
-              user_id: authUser.id,
+              user_id: targetUserId,
             }
             const minRes = await supabase.from('bookings').insert(minPayload).select().single()
             if (minRes.error) throw new Error(minRes.error.message || 'Database error creating booking')
@@ -575,7 +585,7 @@ export function useCreateBooking() {
         }
       }
 
-      await recalculateCustomer(authUser.id, booking.mobile_number)
+      await recalculateCustomer(targetUserId, booking.mobile_number)
       return data
     },
     onSuccess: () => invalidateBusinessQueries(queryClient),

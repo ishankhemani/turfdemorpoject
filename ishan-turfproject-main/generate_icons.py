@@ -1,4 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+import os
+import subprocess
+from PIL import Image, ImageDraw, ImageFont
+
+# 1. Create PWA App Icon SVG (Dark Sleek Background with Emerald Swoosh, Batsman & ELITE ARENA text)
+pwa_icon_svg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#09090b"/>
@@ -37,3 +42,13 @@
     <text x="0" y="62" text-anchor="middle" fill="#22c55e" font-family="Georgia, serif" font-weight="900" font-size="50" letter-spacing="6">ARENA</text>
   </g>
 </svg>
+'''
+
+with open('public/pwa-icon.svg', 'w') as f:
+    f.write(pwa_icon_svg)
+
+# Also update favicon.svg to match
+with open('public/favicon.svg', 'w') as f:
+    f.write(pwa_icon_svg)
+
+print('SVG icon created successfully.')

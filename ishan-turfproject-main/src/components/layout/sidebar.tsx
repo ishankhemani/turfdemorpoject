@@ -24,6 +24,7 @@ import {
   X,
   Package,
 } from 'lucide-react'
+import { EliteArenaLogo } from '@/components/ui/elite-arena-logo'
 
 interface NavItem {
   title: string
@@ -55,12 +56,17 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }: SidebarProps) {
-  const { profile, signOut } = useAuth()
+  const { profile, signOut, role, isStaff, setRole } = useAuth()
   const location = useLocation()
 
   const handleSignOut = async () => {
     await signOut()
   }
+
+  // Filter navigation items if logged in as staff
+  const visibleNavItems = isStaff
+    ? navItems.filter((item) => item.href === '/admin/bookings' || item.href === '/admin/customers')
+    : navItems
 
   const NavItemComponent = ({ item, collapsed }: { item: NavItem; collapsed: boolean }) => {
     const isActive = location.pathname === item.href || location.pathname.startsWith(item.href + '/')
@@ -110,27 +116,21 @@ export function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }: 
   const sidebarContent = (
     <div className="flex h-full flex-col">
       <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center' : 'justify-between')}>
-        {!collapsed && (
+        {!collapsed ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="flex items-center gap-2"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-4 w-4 text-primary-foreground"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 6v6l4 2" />
-              </svg>
-            </div>
-            <span className="font-bold text-lg">Turf POS</span>
+            <EliteArenaLogo size="md" />
+          </motion.div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex items-center justify-center"
+          >
+            <EliteArenaLogo iconOnly size="sm" />
           </motion.div>
         )}
         <Button
@@ -145,18 +145,21 @@ export function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }: 
 
       <ScrollArea className="flex-1 py-4">
         <nav className="space-y-1 px-3">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavItemComponent key={item.href} item={item} collapsed={collapsed} />
           ))}
         </nav>
 
-        <Separator className="my-4" />
-
-        <nav className="space-y-1 px-3">
-          {bottomNavItems.map((item) => (
-            <NavItemComponent key={item.href} item={item} collapsed={collapsed} />
-          ))}
-        </nav>
+        {!isStaff && (
+          <>
+            <Separator className="my-4" />
+            <nav className="space-y-1 px-3">
+              {bottomNavItems.map((item) => (
+                <NavItemComponent key={item.href} item={item} collapsed={collapsed} />
+              ))}
+            </nav>
+          </>
+        )}
       </ScrollArea>
 
       <div className={cn('border-t p-4', collapsed && 'flex justify-center')}>
@@ -172,12 +175,14 @@ export function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }: 
               {profile?.full_name?.charAt(0).toUpperCase() || 'U'}
             </AvatarFallback>
           </Avatar>
+
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{profile?.full_name || 'User'}</p>
               <p className="text-xs text-muted-foreground truncate">{profile?.email}</p>
             </div>
           )}
+
           {!collapsed && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -188,6 +193,7 @@ export function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }: 
               <TooltipContent>Sign out</TooltipContent>
             </Tooltip>
           )}
+
           {collapsed && (
             <Tooltip>
               <TooltipTrigger asChild>

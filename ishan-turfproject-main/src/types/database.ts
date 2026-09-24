@@ -52,6 +52,7 @@ export interface InventoryItem extends BaseEntity {
   default_price: number
   quantity: number
   last_edited: string
+  last_restocked_qty?: number | null
   user_id: string
 }
 
@@ -139,6 +140,7 @@ export interface User extends BaseEntity {
   email: string
   full_name: string | null
   avatar_url: string | null
+  role?: 'admin' | 'staff' | string
 }
 
 export type PaymentStatus = 'paid' | 'pending'

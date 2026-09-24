@@ -25,7 +25,7 @@ const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
 export function ThemeProvider({
   children,
   defaultTheme = 'dark',
-  storageKey = 'turf-pos-theme',
+  storageKey = 'elite-arena-theme',
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(

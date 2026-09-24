@@ -131,12 +131,25 @@ export function useUpdateInventoryStock() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ id, quantity, default_price }: { id: string; quantity?: number; default_price?: number }) => {
+    mutationFn: async ({
+      id,
+      quantity,
+      default_price,
+      restocked_qty,
+    }: {
+      id: string
+      quantity?: number
+      default_price?: number
+      restocked_qty?: number
+    }) => {
+      const nowIso = new Date().toISOString()
+
       if (user) {
         try {
-          const updates: Record<string, any> = { last_edited: new Date().toISOString() }
+          const updates: Record<string, any> = { last_edited: nowIso }
           if (quantity !== undefined) updates.quantity = quantity
           if (default_price !== undefined) updates.default_price = default_price
+          if (restocked_qty !== undefined && restocked_qty > 0) updates.last_restocked_qty = restocked_qty
 
           const { error } = await supabase
             .from('inventory_items')
@@ -144,7 +157,10 @@ export function useUpdateInventoryStock() {
             .eq('id', id)
             .eq('user_id', user.id)
 
-          if (!error) return
+          if (error && (error.message?.includes('column') || error.code === 'PGRST204')) {
+            delete updates.last_restocked_qty
+            await supabase.from('inventory_items').update(updates).eq('id', id).eq('user_id', user.id)
+          }
         } catch (e) {
           console.warn('Supabase inventory update failed, updating local state', e)
         }
@@ -152,22 +168,41 @@ export function useUpdateInventoryStock() {
 
       // Local fallback
       const local = getLocalInventory()
-      const updated = local.map(item => {
+      const updated = local.map((item) => {
         if (item.id === id) {
           return {
             ...item,
             ...(quantity !== undefined ? { quantity } : {}),
             ...(default_price !== undefined ? { default_price } : {}),
-            last_edited: new Date().toISOString()
+            ...(restocked_qty !== undefined && restocked_qty > 0 ? { last_restocked_qty: restocked_qty } : {}),
+            last_edited: nowIso,
           }
         }
         return item
       })
       saveLocalInventory(updated)
     },
+    onMutate: async ({ id, quantity, default_price, restocked_qty }) => {
+      const nowIso = new Date().toISOString()
+      queryClient.setQueriesData<InventoryItem[]>({ queryKey: ['inventory-items'] }, (old) => {
+        if (!old) return old
+        return old.map((item) => {
+          if (item.id === id) {
+            return {
+              ...item,
+              ...(quantity !== undefined ? { quantity } : {}),
+              ...(default_price !== undefined ? { default_price } : {}),
+              ...(restocked_qty !== undefined && restocked_qty > 0 ? { last_restocked_qty: restocked_qty } : {}),
+              last_edited: nowIso,
+            }
+          }
+          return item
+        })
+      })
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
-    }
+    },
   })
 }
 

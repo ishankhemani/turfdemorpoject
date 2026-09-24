@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
 import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, ArrowLeft, KeyRound, CheckCircle2 } from 'lucide-react'
+import { EliteArenaLogo } from '@/components/ui/elite-arena-logo'
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -106,27 +107,15 @@ export function LoginPage() {
         className="w-full max-w-md"
       >
         {/* Logo / Brand */}
-        <div className="text-center mb-8">
+        <div className="flex flex-col items-center justify-center text-center mb-8">
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1 }}
-            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4"
+            className="mb-3"
           >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="w-8 h-8 text-primary-foreground"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 6v6l4 2" />
-            </svg>
+            <EliteArenaLogo size="lg" />
           </motion.div>
-          <h1 className="text-2xl font-bold tracking-tight">Turf POS</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Owner &amp; Admin Panel
           </p>

@@ -3,7 +3,7 @@ import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from '@/hooks/use-auth'
 import { ThemeProvider } from '@/stores/theme-store'
-import { AppLayout, ProtectedRoute } from '@/components/layout'
+import { AppLayout, ProtectedRoute, StaffGuard } from '@/components/layout'
 import { Toaster } from '@/components/ui/toaster'
 import { PageLoadingState } from '@/components/common/loading'
 import { PwaInstallPrompt } from '@/components/common/pwa-install-prompt'
@@ -23,13 +23,21 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5,
+      gcTime: 1000 * 60 * 30,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
       retry: 1,
     },
   },
 })
 
+function AdminIndexRedirect() {
+  const { isStaff } = useAuth()
+  return <Navigate to={isStaff ? '/admin/bookings' : '/admin/dashboard'} replace />
+}
+
 const adminChildren = [
-  { index: true, element: <Navigate to="/admin/dashboard" replace /> },
+  { index: true, element: <AdminIndexRedirect /> },
   { path: 'dashboard', element: <Suspense fallback={<PageLoadingState />}><DashboardPage /></Suspense> },
   { path: 'bookings', element: <Suspense fallback={<PageLoadingState />}><BookingPage /></Suspense> },
   { path: 'inventory', element: <Suspense fallback={<PageLoadingState />}><InventoryPage /></Suspense> },
@@ -56,7 +64,9 @@ const router = createBrowserRouter([
     path: '/admin',
     element: (
       <ProtectedRoute>
-        <AppLayout />
+        <StaffGuard>
+          <AppLayout />
+        </StaffGuard>
       </ProtectedRoute>
     ),
     children: adminChildren,

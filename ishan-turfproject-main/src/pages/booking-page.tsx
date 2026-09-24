@@ -399,13 +399,15 @@ export function BookingPage() {
 
       let createdBookingId = editingBooking?.id
 
+      // Close dialog immediately for 0ms latency user feedback
+      setIsDialogOpen(false)
+      setEditingBooking(null)
+
       if (editingBooking) {
         await updateBooking.mutateAsync({ id: editingBooking.id, ...payload })
-        toast({ title: 'Booking updated', description: 'Booking has been updated' })
       } else {
         const created = await createBooking.mutateAsync(payload as any)
         createdBookingId = created?.id
-        toast({ title: 'Booking created', description: 'New booking created successfully' })
       }
 
       // Sync add-ons to inventory sales log & stock (only records if payment_status is paid)
@@ -421,9 +423,6 @@ export function BookingPage() {
           console.warn('Inventory log sync bypassed safely', invErr)
         }
       }
-
-      setIsDialogOpen(false)
-      setEditingBooking(null)
     } catch (error) {
       toast({
         variant: 'destructive',
@@ -449,7 +448,6 @@ export function BookingPage() {
         isPaid: true,
         addOns: booking.add_ons || [],
       })
-      toast({ title: 'Marked as Paid', description: `Booking for ${booking.customer_name} marked as paid.` })
     } catch (e) {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to update payment status' })
     }
@@ -458,16 +456,16 @@ export function BookingPage() {
   const handleSaveExtend = async () => {
     if (!extendTarget || !extendEndTime) return
     try {
-      const times = (extendTarget.booking_time || '').split(' - ')
-      const newBookingTime = `${times[0] || extendTarget.start_time || '16:00'} - ${extendEndTime}`
+      const target = extendTarget
+      setExtendTarget(null)
+      const times = (target.booking_time || '').split(' - ')
+      const newBookingTime = `${times[0] || target.start_time || '16:00'} - ${extendEndTime}`
 
       await updateBooking.mutateAsync({
-        id: extendTarget.id,
+        id: target.id,
         end_time: extendEndTime,
         booking_time: newBookingTime,
       })
-      toast({ title: 'Booking Extended', description: `Extended until ${format12Hr(extendEndTime)}` })
-      setExtendTarget(null)
     } catch (e) {
       toast({ variant: 'destructive', title: 'Error', description: 'Could not extend booking' })
     }
@@ -476,12 +474,12 @@ export function BookingPage() {
   const handleSaveActualEndTime = async () => {
     if (!modifyTarget || !actualEndTimeInput) return
     try {
+      const target = modifyTarget
+      setModifyTarget(null)
       await updateBooking.mutateAsync({
-        id: modifyTarget.id,
+        id: target.id,
         actual_end_time: actualEndTimeInput,
       })
-      toast({ title: 'Actual End Time Saved', description: `Updated actual end time to ${format12Hr(actualEndTimeInput)}` })
-      setModifyTarget(null)
     } catch (e) {
       toast({ variant: 'destructive', title: 'Error', description: 'Could not save actual end time' })
     }
@@ -489,10 +487,9 @@ export function BookingPage() {
 
   const handleDelete = async (id: string) => {
     try {
+      setDeleteConfirm(null)
       await removeInventorySales.mutateAsync(id)
       await deleteBooking.mutateAsync(id)
-      toast({ title: 'Booking deleted', description: 'Booking removed' })
-      setDeleteConfirm(null)
     } catch (error) {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete booking' })
     }

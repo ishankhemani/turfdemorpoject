@@ -816,10 +816,9 @@ export function AccountsPage() {
           </DialogHeader>
           <form onSubmit={expenseForm.handleSubmit(async (data) => {
             try {
-              await createExpense.mutateAsync(data as Omit<Expense, 'id' | 'user_id' | 'created_at' | 'updated_at'>)
-              toast({ title: 'Expense added' })
-              expenseForm.reset({ date: new Date().toISOString().split('T')[0], title: '', description: '', amount: 0, category: '' })
               setIsExpenseDialogOpen(false)
+              createExpense.mutate(data as Omit<Expense, 'id' | 'user_id' | 'created_at' | 'updated_at'>)
+              expenseForm.reset({ date: new Date().toISOString().split('T')[0], title: '', description: '', amount: 0, category: '' })
             } catch {
               toast({ variant: 'destructive', title: 'Error', description: 'Failed to add expense' })
             }
@@ -867,9 +866,9 @@ export function AccountsPage() {
           </DialogHeader>
           <form onSubmit={labourForm.handleSubmit(async (data) => {
             try {
-              await createLabour.mutateAsync(data as Omit<Labour, 'id' | 'user_id' | 'created_at' | 'updated_at'>)
-              toast({ title: 'Labour added' })
               setIsLabourDialogOpen(false)
+              createLabour.mutate(data as Omit<Labour, 'id' | 'user_id' | 'created_at' | 'updated_at'>)
+              labourForm.reset({ name: '', phone: '', role: '' })
             } catch {
               toast({ variant: 'destructive', title: 'Error', description: 'Failed to add labour' })
             }
@@ -902,10 +901,9 @@ export function AccountsPage() {
           </DialogHeader>
           <form onSubmit={labourPaymentForm.handleSubmit(async (data) => {
             try {
-              await createLabourPayment.mutateAsync(data as Omit<LabourPayment, 'id' | 'user_id' | 'created_at' | 'updated_at'>)
-              toast({ title: 'Payment recorded' })
-              labourPaymentForm.reset({ labour_id: '', date: new Date().toISOString().split('T')[0], amount: 0, remarks: '' })
               setIsLabourPaymentDialogOpen(false)
+              createLabourPayment.mutate(data as Omit<LabourPayment, 'id' | 'user_id' | 'created_at' | 'updated_at'>)
+              labourPaymentForm.reset({ labour_id: '', date: new Date().toISOString().split('T')[0], amount: 0, remarks: '' })
             } catch {
               toast({ variant: 'destructive', title: 'Error', description: 'Failed to add payment' })
             }
@@ -949,10 +947,9 @@ export function AccountsPage() {
           </DialogHeader>
           <form onSubmit={liabilityForm.handleSubmit(async (data) => {
             try {
-              await createLiability.mutateAsync({ ...data, outstanding_amount: data.original_amount } as Omit<Liability, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'is_completed'>)
-              toast({ title: 'Liability added' })
-              liabilityForm.reset({ person_name: '', original_amount: 0, outstanding_amount: 0, description: '' })
               setIsLiabilityDialogOpen(false)
+              createLiability.mutate({ ...data, outstanding_amount: data.original_amount } as Omit<Liability, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'is_completed'>)
+              liabilityForm.reset({ person_name: '', original_amount: 0, outstanding_amount: 0, description: '' })
             } catch {
               toast({ variant: 'destructive', title: 'Error', description: 'Failed to add liability' })
             }
@@ -986,14 +983,13 @@ export function AccountsPage() {
           <form onSubmit={liabilityPaymentForm.handleSubmit(async (data) => {
             if (!selectedLiabilityId) return
             try {
-              await createLiabilityPayment.mutateAsync({
+              setIsLiabilityPaymentDialogOpen(false)
+              createLiabilityPayment.mutate({
                 liabilityId: selectedLiabilityId,
                 amount: data.amount,
                 date: data.date,
               })
-              toast({ title: 'Payment recorded' })
               liabilityPaymentForm.reset({ amount: 0, date: new Date().toISOString().split('T')[0] })
-              setIsLiabilityPaymentDialogOpen(false)
             } catch {
               toast({ variant: 'destructive', title: 'Error', description: 'Failed to record payment' })
             }
@@ -1028,11 +1024,11 @@ export function AccountsPage() {
             <Button variant="destructive" onClick={async () => {
               if (!deleteConfirm) return
               try {
-                if (deleteConfirm.type === 'expense') await deleteExpense.mutateAsync(deleteConfirm.id)
-                else if (deleteConfirm.type === 'labour') await deleteLabour.mutateAsync(deleteConfirm.id)
-                else if (deleteConfirm.type === 'liability') await deleteLiability.mutateAsync(deleteConfirm.id)
-                toast({ title: 'Deleted successfully' })
+                const item = deleteConfirm
                 setDeleteConfirm(null)
+                if (item.type === 'expense') deleteExpense.mutate(item.id)
+                else if (item.type === 'labour') deleteLabour.mutate(item.id)
+                else if (item.type === 'liability') deleteLiability.mutate(item.id)
               } catch {
                 toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete' })
               }

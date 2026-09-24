@@ -32,14 +32,26 @@ export function ReportsPage() {
     return <PageLoadingState />
   }
 
-  // ---- Revenue breakdown calculations ----
-  const paidBookings = (bookings || []).filter((b) => b.payment_status === 'paid')
-  const pendingBookings = (bookings || []).filter((b) => b.payment_status === 'pending')
+  // Active bookings filtered by current report view
+  const activeBookings = (bookings || []).filter((b) => {
+    if (reportType === 'custom') {
+      return b.booking_date >= customStartDate && b.booking_date <= customEndDate
+    }
+    if (reportType === 'daily') {
+      const dailyDates = new Set(dailyData.map((d) => d.date))
+      return dailyDates.has(b.booking_date)
+    }
+    return true
+  })
+
+  const paidBookings = activeBookings.filter((b) => b.payment_status === 'paid')
+  const pendingBookings = activeBookings.filter((b) => b.payment_status === 'pending')
 
   let onlineRevenue = 0
   let offlineRevenue = 0
   paidBookings.forEach((b) => {
-    const mode = b.payment_mode || (b.transaction_id || b.source === 'website' ? 'online' : 'offline')
+    const isOnlineBooking = Boolean(b.transaction_id || b.source === 'website' || b.payment_mode === 'online')
+    const mode = b.payment_mode || (isOnlineBooking ? 'online' : 'offline')
     const amt = Number(b.amount || 0)
     if (mode === 'split') {
       let onAmt = Number(b.online_amount || 0)
@@ -50,7 +62,7 @@ export function ReportsPage() {
       }
       onlineRevenue += onAmt
       offlineRevenue += offAmt
-    } else if (mode === 'online') {
+    } else if (mode === 'online' || isOnlineBooking) {
       onlineRevenue += amt
     } else {
       offlineRevenue += amt
@@ -58,14 +70,49 @@ export function ReportsPage() {
   })
 
   const pendingAmount = pendingBookings.reduce((s, b) => s + Number(b.amount || 0), 0)
+
+  // Top summary stats based on current report view
+  const displayRevenue = reportType === 'monthly'
+    ? (monthlyData || []).reduce((sum, m) => sum + m.revenue, 0)
+    : (dailyData || []).reduce((sum, d) => sum + d.revenue, 0)
+
+  // Expenses already includes general expenses + labour payments + liability payments
+  const displayExpenses = reportType === 'monthly'
+    ? (monthlyData || []).reduce((sum, m) => sum + m.expenses, 0)
+    : (dailyData || []).reduce((sum, d) => sum + d.expenses, 0)
+
+  const displayProfit = displayRevenue - displayExpenses
+
   const generateReport = () => {
-    const totalRevenue = (monthlyData || []).reduce((sum, month) => sum + month.revenue, 0)
-    const operatingOut = (monthlyData || []).reduce((sum, month) => sum + month.expenses, 0)
-    const totalProfit = totalRevenue - operatingOut
-    const generalExpenses = (expenses || []).reduce((sum, expense) => sum + Number(expense.amount), 0)
-    const labourPayments = (labour || []).reduce((sum, worker) => sum + (worker.payments || []).reduce((workerSum, payment) => workerSum + Number(payment.amount), 0), 0)
-    const pendingBookingAmount = (bookings || []).filter((booking) => booking.payment_status === 'pending').reduce((sum, booking) => sum + Number(booking.amount), 0)
-    const outstandingLiabilities = (liabilities || []).filter((liability) => !liability.is_completed).reduce((sum, liability) => sum + Number(liability.outstanding_amount), 0)
+    const totalRevenue = displayRevenue
+    const operatingOut = displayExpenses
+    const totalProfit = displayProfit
+
+    const filterByDate = (dateStr?: string) => {
+      if (!dateStr) return true
+      if (reportType === 'custom') {
+        return dateStr >= customStartDate && dateStr <= customEndDate
+      }
+      if (reportType === 'daily') {
+        const dailyDates = new Set(dailyData.map((d) => d.date))
+        return dailyDates.has(dateStr)
+      }
+      return true
+    }
+
+    const generalExpenses = (expenses || [])
+      .filter((e) => filterByDate(e.date))
+      .reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
+
+    const labourPayments = (labour || [])
+      .reduce((sum, worker) => sum + (worker.payments || [])
+        .filter((p) => filterByDate(p.date))
+        .reduce((workerSum, payment) => workerSum + Number(payment.amount || 0), 0), 0)
+
+    const pendingBookingAmount = pendingAmount
+    const outstandingLiabilities = (liabilities || [])
+      .filter((liability) => !liability.is_completed)
+      .reduce((sum, liability) => sum + Number(liability.outstanding_amount || 0), 0)
     const reportWindow = window.open('', '_blank', 'noopener,noreferrer')
     if (!reportWindow) return
 
@@ -89,7 +136,7 @@ export function ReportsPage() {
     reportWindow.document.write(`<!doctype html>
 <html>
 <head>
-  <title>Turf POS ${reportType} report</title>
+  <title>Elite Arena ${reportType} report</title>
   <style>
     @page { size: A4; margin: 18mm; }
     body { font-family: Inter, Arial, sans-serif; color: #0f172a; background: #fff; }
@@ -118,7 +165,7 @@ export function ReportsPage() {
 <body>
   <div class="header">
     <div>
-      <div class="brand">Turf POS Business Report</div>
+      <div class="brand">Elite Arena Business Report</div>
       <div class="muted">${reportType.toUpperCase()} REPORT • Generated ${new Date().toLocaleString()}</div>
     </div>
     <div class="muted">Production financial summary</div>
@@ -161,10 +208,6 @@ export function ReportsPage() {
     reportWindow.document.close()
   }
 
-  const totalRevenue = (monthlyData || []).reduce((sum, m) => sum + m.revenue, 0)
-  const totalExpenses = (monthlyData || []).reduce((sum, m) => sum + m.expenses, 0)
-  const labourPayments = (labour || []).reduce((sum, l) => sum + (l.payments || []).reduce((s, p) => s + Number(p.amount), 0), 0)
-  const outstandingLiabilities = (liabilities || []).filter((l) => !l.is_completed).reduce((s, l) => s + Number(l.outstanding_amount), 0)
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -219,7 +262,7 @@ export function ReportsPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-xs text-slate-400">Paid Revenue</p>
-                <p className="text-lg sm:text-2xl font-bold text-white truncate">{formatCurrency(totalRevenue)}</p>
+                <p className="text-lg sm:text-2xl font-bold text-white truncate">{formatCurrency(displayRevenue)}</p>
               </div>
             </div>
           </CardContent>
@@ -232,7 +275,7 @@ export function ReportsPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-xs text-slate-400">Expenses</p>
-                <p className="text-lg sm:text-2xl font-bold text-white truncate">{formatCurrency(totalExpenses + labourPayments)}</p>
+                <p className="text-lg sm:text-2xl font-bold text-white truncate">{formatCurrency(displayExpenses)}</p>
               </div>
             </div>
           </CardContent>
@@ -258,7 +301,7 @@ export function ReportsPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-xs text-slate-400">Total Bookings</p>
-                <p className="text-lg sm:text-2xl font-bold text-white">{(bookings || []).length}</p>
+                <p className="text-lg sm:text-2xl font-bold text-white">{activeBookings.length}</p>
               </div>
             </div>
           </CardContent>

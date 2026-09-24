@@ -26,6 +26,26 @@ function formatDateNice(isoString?: string | null) {
   }
 }
 
+function renderRestockInfo(lastEdited?: string | null, restockedQty?: number | null) {
+  if (!lastEdited) return <span className="text-slate-500 italic">Not Restocked Yet</span>
+  const formattedDate = formatDateNice(lastEdited)
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-1.5 text-slate-200 font-medium">
+        <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+        <span>{formattedDate}</span>
+      </div>
+      {restockedQty && restockedQty > 0 ? (
+        <span className="text-[11px] text-emerald-400 font-bold pl-5 flex items-center gap-1">
+          <TrendingUp className="w-3 h-3 text-emerald-400 inline" /> +{restockedQty} units restocked
+        </span>
+      ) : (
+        <span className="text-[11px] text-slate-500 pl-5">Initial Stock</span>
+      )}
+    </div>
+  )
+}
+
 export function InventoryPage() {
   const todayStr = new Date().toISOString().split('T')[0]
   const { data: inventoryItems = [], isLoading, refetch } = useInventoryItems()
@@ -68,12 +88,17 @@ export function InventoryPage() {
 
   const handleSaveStock = async () => {
     if (!editingItem) return
-    await updateStock.mutateAsync({
-      id: editingItem.id,
-      quantity: Math.max(0, editingItem.quantity + Number(addQty)),
-      default_price: Number(newPrice),
-    })
+    const addVal = Number(addQty)
+    const newStock = Math.max(0, editingItem.quantity + addVal)
+    const targetItem = editingItem
     setEditingItem(null)
+
+    await updateStock.mutateAsync({
+      id: targetItem.id,
+      quantity: newStock,
+      default_price: Number(newPrice),
+      restocked_qty: addVal > 0 ? addVal : targetItem.last_restocked_qty || undefined,
+    })
   }
 
   // Filtered sales transaction list for the sales log search
@@ -188,11 +213,8 @@ export function InventoryPage() {
                           <td className="px-4 sm:px-6 py-4 text-slate-400">{item.category}</td>
                           <td className="px-4 sm:px-6 py-4 text-emerald-400 font-semibold">₹{item.default_price}</td>
                           <td className="px-4 sm:px-6 py-4 font-bold text-white">{item.quantity} units</td>
-                          <td className="px-4 sm:px-6 py-4 text-slate-400 text-xs">
-                            <div className="flex items-center gap-1.5">
-                              <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                              {formatDateNice(item.last_edited)}
-                            </div>
+                          <td className="px-4 sm:px-6 py-4 text-xs">
+                            {renderRestockInfo(item.last_edited, item.last_restocked_qty)}
                           </td>
                           <td className="px-4 sm:px-6 py-4">
                             {item.quantity <= 0 ? (
@@ -377,11 +399,8 @@ export function InventoryPage() {
                                 {item.quantity} units
                               </span>
                             </td>
-                            <td className="px-4 sm:px-6 py-4 text-slate-300 text-xs">
-                              <div className="flex items-center gap-1.5">
-                                <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                                {formatDateNice(item.last_edited)}
-                              </div>
+                            <td className="px-4 sm:px-6 py-4 text-xs">
+                              {renderRestockInfo(item.last_edited, item.last_restocked_qty)}
                             </td>
                             <td className="px-4 sm:px-6 py-4 font-semibold text-cyan-400">
                               {soldSinceRestock} units
@@ -485,14 +504,23 @@ export function InventoryPage() {
                 <span className="text-slate-400">Current Stock Level:</span>
                 <span className="font-bold text-white">{editingItem.quantity} units</span>
               </div>
-              <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800 flex justify-between text-xs">
-                <span className="text-slate-400">Last Restocked:</span>
-                <span className="font-medium text-slate-200">{formatDateNice(editingItem.last_edited)}</span>
+              <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800 flex justify-between items-center text-xs">
+                <span className="text-slate-400">Last Restocked Info:</span>
+                <div className="text-right">
+                  <div className="font-medium text-slate-200">{formatDateNice(editingItem.last_edited)}</div>
+                  {editingItem.last_restocked_qty && editingItem.last_restocked_qty > 0 ? (
+                    <span className="text-[11px] text-emerald-400 font-bold flex items-center justify-end gap-1 mt-0.5">
+                      <TrendingUp className="w-3 h-3 inline" /> +{editingItem.last_restocked_qty} units restocked
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-500 mt-0.5 block">Initial Stock</span>
+                  )}
+                </div>
               </div>
 
               <div>
                 <label className="text-sm text-slate-300 font-medium block mb-1">
-                  Adjust Quantity (+ to add stock, - to return/subtract)
+                  Adjust Quantity (+ to add restock, - to return/subtract)
                 </label>
                 <Input
                   type="number"
@@ -501,9 +529,16 @@ export function InventoryPage() {
                   placeholder="Enter quantity to adjust (+5 or -2)..."
                   className="bg-slate-950/60 border-slate-700 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">
-                  New Stock Total will be: <strong className="text-emerald-400">{Math.max(0, editingItem.quantity + Number(addQty))} units</strong>
-                </p>
+                <div className="flex justify-between items-center text-xs text-slate-400 mt-1.5">
+                  <span>
+                    New Stock Total: <strong className="text-emerald-400">{Math.max(0, editingItem.quantity + Number(addQty))} units</strong>
+                  </span>
+                  {Number(addQty) > 0 && (
+                    <span className="text-emerald-400 font-bold text-[11px] bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/50 flex items-center gap-1">
+                      <TrendingUp className="w-3 h-3" /> +{Number(addQty)} units restocked
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div>

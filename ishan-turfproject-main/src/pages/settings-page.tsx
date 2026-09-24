@@ -184,7 +184,7 @@ export function SettingsPage() {
                 <span>Install App / Add to Home Screen</span>
               </CardTitle>
               <CardDescription className="text-slate-400 text-xs sm:text-sm">
-                Install the Turf POS app on your Phone, Tablet, or Computer for offline access, fast loading, and native app experience.
+                Install the Elite Arena app on your Phone, Tablet, or Computer for offline access, fast loading, and native app experience.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-6">

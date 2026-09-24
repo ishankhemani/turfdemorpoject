@@ -24,7 +24,7 @@ interface NavbarProps {
 
 export function Navbar({ onMenuClick, title }: NavbarProps) {
   const { theme, setTheme, resolvedTheme } = useTheme()
-  const { profile } = useAuth()
+  const { profile, isStaff, setRole } = useAuth()
   const upcomingBookings = useBookingNotifications()
   useAdminRealtimeSync()
 

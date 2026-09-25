@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTodayBookings, useCreateBooking, useUpdateBooking, useDeleteBooking, useBookings } from '@/services/dashboard-service'
 import { useSyncBookingInventorySales, useRemoveBookingInventorySales, DEFAULT_INVENTORY_ITEMS, useInventoryItems } from '@/services/inventory-service'
-import { useToast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -109,6 +108,7 @@ const bookingSchema = z.object({
   end_time: z.string().min(1, 'Select end time'),
   sport: z.string(),
   turf_amount: z.number().min(0, 'Invalid amount'),
+  paid_amount: z.number().min(0).optional(),
   payment_status: z.enum(['paid', 'pending']),
   payment_mode: z.enum(['offline', 'online', 'split']),
   online_amount: z.number().min(0),
@@ -125,6 +125,13 @@ export function BookingPage() {
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'list' | 'timeline'>('timeline')
+  // Success flash & inline error (replaces toast notifications)
+  const [successFlash, setSuccessFlash] = useState<{ name: string } | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // Payment status modal state for quick paid amount entry
+  const [paymentModalBooking, setPaymentModalBooking] = useState<Booking | null>(null)
+  const [paymentModalPaidInput, setPaymentModalPaidInput] = useState<number>(0)
 
   // Extend booking state
   const [extendTarget, setExtendTarget] = useState<Booking | null>(null)
@@ -144,7 +151,11 @@ export function BookingPage() {
   const deleteBooking = useDeleteBooking()
   const syncInventorySales = useSyncBookingInventorySales()
   const removeInventorySales = useRemoveBookingInventorySales()
-  const { toast } = useToast()
+
+  const showSuccess = useCallback((name: string) => {
+    setSuccessFlash({ name })
+    setTimeout(() => setSuccessFlash(null), 1800)
+  }, [])
 
   const stockMap = React.useMemo(() => {
     const map: Record<string, number> = {}
@@ -284,6 +295,10 @@ export function BookingPage() {
     const defaultOnline = mode === 'split' ? Math.floor(totalAmt / 2) : mode === 'online' ? totalAmt : 0
     const defaultOffline = mode === 'split' ? totalAmt - defaultOnline : mode === 'offline' ? totalAmt : 0
 
+    const initialPaid = booking.paid_amount !== undefined && booking.paid_amount !== null
+      ? Number(booking.paid_amount)
+      : (booking.payment_status === 'paid' ? totalAmt : 0)
+
     form.reset({
       customer_name: booking.customer_name,
       mobile_number: booking.mobile_number,
@@ -293,6 +308,7 @@ export function BookingPage() {
       end_time: booking.end_time || times[1] || '17:00',
       sport: booking.sport || 'Turf Sport',
       turf_amount: booking.amount - (booking.add_ons || []).reduce((s, a) => s + a.price * a.qty, 0),
+      paid_amount: initialPaid,
       payment_status: booking.payment_status,
       payment_mode: mode,
       online_amount: booking.online_amount ?? defaultOnline,
@@ -310,19 +326,11 @@ export function BookingPage() {
 
     if (delta > 0) {
       if (availableStock <= 0) {
-        toast({
-          variant: 'destructive',
-          title: 'Out of Stock',
-          description: `${name} is currently out of stock and cannot be added.`,
-        })
+        setErrorMsg(`${name} is out of stock.`)
         return
       }
       if (currentItem.qty + delta > availableStock) {
-        toast({
-          variant: 'destructive',
-          title: 'Stock Limit Reached',
-          description: `Only ${availableStock} unit${availableStock === 1 ? '' : 's'} of ${name} available in stock.`,
-        })
+        setErrorMsg(`Only ${availableStock} unit${availableStock === 1 ? '' : 's'} of ${name} in stock.`)
         return
       }
     }
@@ -368,16 +376,21 @@ export function BookingPage() {
       })
 
       if (conflictingBooking) {
-        toast({
-          variant: 'destructive',
-          title: 'Time Slot Conflict',
-          description: `Slot overlaps with an existing booking for ${conflictingBooking.customer_name} (${conflictingBooking.booking_time || conflictingBooking.start_time}).`,
-        })
+        setErrorMsg(`Slot conflict with booking for ${conflictingBooking.customer_name} (${conflictingBooking.booking_time || conflictingBooking.start_time}).`)
         return
       }
 
       const activeAddOns = selectedAddOns.filter((a) => a.qty > 0)
       const formattedTime = `${data.start_time} - ${data.end_time}`
+
+      const rawPaidInput = data.paid_amount
+      const initialPaid = rawPaidInput !== undefined && rawPaidInput !== null
+        ? Number(rawPaidInput)
+        : (data.payment_status === 'paid' ? grandTotal : 0)
+
+      const finalPaid = Math.max(0, Math.min(grandTotal, initialPaid))
+      const finalPending = Math.max(0, grandTotal - finalPaid)
+      const finalStatus: 'paid' | 'pending' = finalPending <= 0 ? 'paid' : 'pending'
 
       const payload = {
         customer_name: data.customer_name,
@@ -389,10 +402,12 @@ export function BookingPage() {
         end_time: data.end_time,
         sport: data.sport,
         amount: grandTotal,
-        payment_status: data.payment_status,
+        paid_amount: finalPaid,
+        pending_amount: finalPending,
+        payment_status: finalStatus,
         payment_mode: data.payment_mode,
-        online_amount: data.payment_mode === 'split' ? data.online_amount : data.payment_mode === 'online' ? grandTotal : 0,
-        offline_amount: data.payment_mode === 'split' ? data.offline_amount : data.payment_mode === 'offline' ? grandTotal : 0,
+        online_amount: data.payment_mode === 'split' ? data.online_amount : data.payment_mode === 'online' ? finalPaid : 0,
+        offline_amount: data.payment_mode === 'split' ? data.offline_amount : data.payment_mode === 'offline' ? finalPaid : 0,
         add_ons: activeAddOns,
         notes: data.notes || null,
       }
@@ -416,40 +431,59 @@ export function BookingPage() {
           await syncInventorySales.mutateAsync({
             bookingId: createdBookingId,
             date: data.booking_date,
-            isPaid: data.payment_status === 'paid',
+            isPaid: finalStatus === 'paid' || finalPaid > 0,
             addOns: selectedAddOns,
           })
         } catch (invErr) {
           console.warn('Inventory log sync bypassed safely', invErr)
         }
       }
+      // Show success flash after save
+      showSuccess(data.customer_name)
     } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Error saving booking',
-        description: error instanceof Error ? error.message : 'Something went wrong',
-      })
+      setErrorMsg(error instanceof Error ? error.message : 'Something went wrong. Please try again.')
     }
   }
 
-  const handleMarkAsPaid = async (booking: Booking) => {
+  const handleOpenPaymentModal = (booking: Booking) => {
+    setPaymentModalBooking(booking)
+    const totalAmt = Number(booking.amount || 0)
+    const currentPaid = booking.paid_amount !== undefined && booking.paid_amount !== null
+      ? Number(booking.paid_amount)
+      : (booking.payment_status === 'paid' ? totalAmt : 0)
+    setPaymentModalPaidInput(currentPaid > 0 ? currentPaid : totalAmt)
+  }
+
+  const handleSavePaymentModal = async () => {
+    if (!paymentModalBooking) return
     try {
+      const booking = paymentModalBooking
+      setPaymentModalBooking(null)
+      const totalAmt = Number(booking.amount || 0)
+      const enteredPaid = Math.max(0, Math.min(totalAmt, Number(paymentModalPaidInput || 0)))
+      const pendingAmt = Math.max(0, totalAmt - enteredPaid)
+      const newStatus: 'paid' | 'pending' = pendingAmt <= 0 ? 'paid' : 'pending'
       const mode = resolvePaymentMode(booking)
+
       await updateBooking.mutateAsync({
         id: booking.id,
-        payment_status: 'paid',
+        payment_status: newStatus,
+        paid_amount: enteredPaid,
+        pending_amount: pendingAmt,
         payment_mode: mode,
-        online_amount: booking.online_amount ?? (mode === 'online' ? booking.amount : mode === 'split' ? Math.floor(booking.amount / 2) : 0),
-        offline_amount: booking.offline_amount ?? (mode === 'offline' ? booking.amount : mode === 'split' ? booking.amount - Math.floor(booking.amount / 2) : 0),
+        online_amount: booking.online_amount ?? (mode === 'online' ? enteredPaid : mode === 'split' ? Math.floor(enteredPaid / 2) : 0),
+        offline_amount: booking.offline_amount ?? (mode === 'offline' ? enteredPaid : mode === 'split' ? enteredPaid - Math.floor(enteredPaid / 2) : 0),
       })
+
       await syncInventorySales.mutateAsync({
         bookingId: booking.id,
         date: booking.booking_date,
-        isPaid: true,
+        isPaid: newStatus === 'paid' || enteredPaid > 0,
         addOns: booking.add_ons || [],
       })
+      showSuccess(booking.customer_name)
     } catch (e) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to update payment status' })
+      console.warn('Failed to update payment status modal', e)
     }
   }
 
@@ -467,7 +501,7 @@ export function BookingPage() {
         booking_time: newBookingTime,
       })
     } catch (e) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not extend booking' })
+      console.warn('Could not extend booking', e)
     }
   }
 
@@ -481,7 +515,7 @@ export function BookingPage() {
         actual_end_time: actualEndTimeInput,
       })
     } catch (e) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not save actual end time' })
+      console.warn('Could not save actual end time', e)
     }
   }
 
@@ -491,7 +525,7 @@ export function BookingPage() {
       await removeInventorySales.mutateAsync(id)
       await deleteBooking.mutateAsync(id)
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete booking' })
+      console.warn('Failed to delete booking', error)
     }
   }
 
@@ -663,24 +697,28 @@ export function BookingPage() {
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                     <Badge
                                       className={cn(
-                                        'px-2 py-0.5 font-bold text-xs',
+                                        'px-2 py-0.5 font-bold text-xs flex items-center gap-1',
                                         startingBooking.payment_status === 'paid'
                                           ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-700'
                                           : 'bg-amber-950/80 text-amber-400 border border-amber-700'
                                       )}
                                     >
                                       ₹{startingBooking.amount}
+                                      {startingBooking.pending_amount && startingBooking.pending_amount > 0 ? (
+                                        <span className="text-[10px] text-red-400 font-normal">
+                                          (₹{startingBooking.pending_amount} pend)
+                                        </span>
+                                      ) : null}
                                     </Badge>
 
-                                    {startingBooking.payment_status === 'pending' && (
-                                      <Button
-                                        size="sm"
-                                        onClick={() => handleMarkAsPaid(startingBooking)}
-                                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] sm:text-xs h-7"
-                                      >
-                                        <Check className="w-3 h-3 mr-0.5" /> Paid
-                                      </Button>
-                                    )}
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleOpenPaymentModal(startingBooking)}
+                                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] sm:text-xs h-7"
+                                    >
+                                      <Check className="w-3 h-3 mr-0.5" />
+                                      {startingBooking.payment_status === 'paid' ? 'Paid' : 'Mark Paid / Enter Amt'}
+                                    </Button>
 
                                     <Button
                                       size="sm"
@@ -817,15 +855,18 @@ export function BookingPage() {
                           </div>
 
                           <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                            {booking.payment_status === 'pending' ? (
-                              <Button size="sm" onClick={() => handleMarkAsPaid(booking)} className="bg-emerald-600 text-white text-[10px] sm:text-xs h-7">
-                                Mark Paid
-                              </Button>
-                            ) : (
+                            <Button size="sm" onClick={() => handleOpenPaymentModal(booking)} className="bg-emerald-600 text-white text-[10px] sm:text-xs h-7">
+                              {booking.payment_status === 'paid' ? 'Paid' : 'Enter Paid Amount'}
+                            </Button>
+                            {booking.pending_amount && booking.pending_amount > 0 ? (
+                              <Badge className="bg-red-950 text-red-400 border-red-800 text-[10px]">
+                                Pending: ₹{booking.pending_amount}
+                              </Badge>
+                            ) : booking.payment_status === 'paid' ? (
                               <Badge className="bg-emerald-950 text-emerald-400 border-emerald-800 text-[10px]">
                                 <CheckCircle2 className="w-3 h-3 mr-1" /> Paid ({resolvePaymentMode(booking)})
                               </Badge>
-                            )}
+                            ) : null}
 
                             <Button
                               size="sm"
@@ -851,10 +892,9 @@ export function BookingPage() {
       </div>
 
       {/* Main Booking Create/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!open) return }}>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!open) { setIsDialogOpen(false); setErrorMsg(null); } }}>
         <DialogContent
-          className="w-[95vw] max-w-2xl max-h-[92svh] overflow-y-auto bg-slate-900 text-white border-slate-800 p-4 sm:p-6"
-          onInteractOutside={(e) => e.preventDefault()}
+          className="w-[95vw] max-w-2xl max-h-[88dvh] overflow-y-auto bg-slate-900 text-white border-slate-800 p-4 sm:p-6 touch-smooth gpu-fast"
         >
           <DialogHeader>
             <DialogTitle className="text-xl font-bold flex items-center gap-2">
@@ -1076,6 +1116,46 @@ export function BookingPage() {
                 </div>
               )}
 
+              <div>
+                <Label className="text-slate-300 text-xs">Actual Amount Paid Received (₹)</Label>
+                <div className="flex gap-2 items-center mt-1">
+                  <Input
+                    type="number"
+                    min="0"
+                    max={grandTotal}
+                    value={form.watch('paid_amount') ?? (form.watch('payment_status') === 'paid' ? grandTotal : 0)}
+                    onChange={(e) => {
+                      const val = Math.max(0, Math.min(grandTotal, Number(e.target.value)))
+                      form.setValue('paid_amount', val)
+                      if (val >= grandTotal) {
+                        form.setValue('payment_status', 'paid')
+                      } else {
+                        form.setValue('payment_status', 'pending')
+                      }
+                    }}
+                    placeholder="Enter paid amount..."
+                    className="bg-slate-950/70 border-slate-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      form.setValue('paid_amount', grandTotal)
+                      form.setValue('payment_status', 'paid')
+                    }}
+                    className="text-xs border-emerald-700/60 text-emerald-400 shrink-0"
+                  >
+                    Full Paid (₹{grandTotal})
+                  </Button>
+                </div>
+                {grandTotal - (form.watch('paid_amount') ?? (form.watch('payment_status') === 'paid' ? grandTotal : 0)) > 0 && (
+                  <p className="text-xs text-red-400 font-semibold mt-1">
+                    Remaining Pending Balance: ₹{grandTotal - (form.watch('paid_amount') ?? (form.watch('payment_status') === 'paid' ? grandTotal : 0))}
+                  </p>
+                )}
+              </div>
+
               <div className="bg-emerald-950/30 p-4 rounded-xl border border-emerald-800/50 flex justify-between items-center">
                 <div>
                   <span className="text-xs text-slate-400 block">Total Final Bill</span>
@@ -1101,7 +1181,18 @@ export function BookingPage() {
             </div>
 
             <DialogFooter className="pt-4 border-t border-slate-800">
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} className="border-slate-700 text-slate-300">
+              {errorMsg && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="w-full mb-2 flex items-start gap-2 rounded-xl bg-red-950/60 border border-red-700/60 text-red-300 text-xs p-3"
+                >
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{errorMsg}</span>
+                  <button className="ml-auto text-red-400 hover:text-red-200" onClick={() => setErrorMsg(null)}>✕</button>
+                </motion.div>
+              )}
+              <Button type="button" variant="outline" onClick={() => { setIsDialogOpen(false); setErrorMsg(null) }} className="border-slate-700 text-slate-300">
                 Cancel
               </Button>
               <Button
@@ -1113,6 +1204,72 @@ export function BookingPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Payment Entry Modal */}
+      <Dialog open={!!paymentModalBooking} onOpenChange={(open) => !open && setPaymentModalBooking(null)}>
+        <DialogContent className="bg-slate-900 text-white border-slate-800 max-w-md touch-smooth gpu-fast">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-emerald-400" /> Enter Paid Amount — {paymentModalBooking?.customer_name}
+            </DialogTitle>
+          </DialogHeader>
+
+          {paymentModalBooking && (
+            <div className="space-y-4 py-2">
+              <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800 text-xs space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Booking Date & Time:</span>
+                  <span className="font-medium text-white">{paymentModalBooking.booking_date} ({format12Hr(paymentModalBooking.start_time || '')})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Total Bill Amount:</span>
+                  <span className="font-bold text-emerald-400 text-sm">₹{paymentModalBooking.amount}</span>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-slate-300 text-xs mb-1 block">
+                  Amount Received / Paid (₹)
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max={paymentModalBooking.amount}
+                  value={paymentModalPaidInput}
+                  onChange={(e) => setPaymentModalPaidInput(Number(e.target.value))}
+                  className="bg-slate-950/70 border-slate-700 text-white text-sm"
+                />
+                <div className="flex justify-between items-center text-xs mt-2 p-2.5 rounded bg-slate-950 border border-slate-800">
+                  <span>
+                    Remaining Pending:{' '}
+                    <strong className={paymentModalBooking.amount - paymentModalPaidInput > 0 ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>
+                      ₹{Math.max(0, paymentModalBooking.amount - paymentModalPaidInput)}
+                    </strong>
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setPaymentModalPaidInput(paymentModalBooking.amount)}
+                    className="text-[11px] h-7 border-emerald-700/60 text-emerald-400 hover:bg-emerald-950/40"
+                  >
+                    Full Paid (₹{paymentModalBooking.amount})
+                  </Button>
+                </div>
+              </div>
+
+              <DialogFooter className="pt-3 border-t border-slate-800">
+                <Button variant="outline" onClick={() => setPaymentModalBooking(null)} className="border-slate-700 text-slate-300 text-xs">
+                  Cancel
+                </Button>
+                <Button onClick={handleSavePaymentModal} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs">
+                  Save Payment
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1225,6 +1382,75 @@ export function BookingPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ─── Booking Success Flash Overlay ─── */}
+      <AnimatePresence>
+        {successFlash && (
+          <motion.div
+            key="success-flash"
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.06 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none"
+          >
+            {/* Radial burst backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            {/* Card */}
+            <motion.div
+              initial={{ opacity: 0, y: 30, scale: 0.85 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.95 }}
+              transition={{ duration: 0.28, ease: [0.34, 1.56, 0.64, 1] }}
+              className="relative z-10 flex flex-col items-center gap-4 bg-slate-900/95 border border-emerald-700/60 rounded-3xl px-10 py-8 shadow-2xl shadow-emerald-900/40"
+            >
+              {/* Animated circle pulse */}
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: [0, 1.25, 1] }}
+                transition={{ duration: 0.4, ease: 'easeOut' }}
+                className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/15 border-2 border-emerald-500/60"
+              >
+                <motion.div
+                  initial={{ scale: 0, rotate: -30 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ delay: 0.15, duration: 0.3, ease: [0.34, 1.56, 0.64, 1] }}
+                >
+                  <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+                </motion.div>
+              </motion.div>
+              {/* Ripple rings */}
+              {[0, 1].map((i) => (
+                <motion.span
+                  key={i}
+                  className="absolute rounded-full border border-emerald-500/30"
+                  style={{ width: 80, height: 80 }}
+                  initial={{ opacity: 0.7, scale: 1 }}
+                  animate={{ opacity: 0, scale: 2.8 }}
+                  transition={{ delay: i * 0.18, duration: 0.9, ease: 'easeOut' }}
+                />
+              ))}
+              <div className="text-center">
+                <p className="text-2xl font-bold text-white">Booking Created!</p>
+                <p className="text-slate-400 text-sm mt-1">{successFlash.name} has been booked successfully.</p>
+              </div>
+              {/* Progress bar */}
+              <motion.div
+                className="h-0.5 rounded-full bg-emerald-500/80 w-full"
+                initial={{ scaleX: 1 }}
+                animate={{ scaleX: 0 }}
+                transition={{ duration: 1.7, ease: 'linear' }}
+                style={{ originX: 1 }}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

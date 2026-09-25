@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
-import { useToast } from '@/hooks/use-toast'
 
 interface StaffGuardProps {
   children: React.ReactNode
@@ -16,7 +15,6 @@ const ALLOWED_STAFF_PATHS = [
 export function StaffGuard({ children }: StaffGuardProps) {
   const { isStaff, loading } = useAuth()
   const location = useLocation()
-  const { toast } = useToast()
 
   const currentPath = location.pathname
 
@@ -26,14 +24,8 @@ export function StaffGuard({ children }: StaffGuardProps) {
   )
 
   useEffect(() => {
-    if (!loading && isStaff && !isAllowedForStaff) {
-      toast({
-        title: 'Access Restricted',
-        description: 'Staff accounts are only permitted to access Bookings and Customers.',
-        variant: 'destructive',
-      })
-    }
-  }, [isStaff, isAllowedForStaff, loading, toast])
+    // Staff navigation to restricted path — redirect handles it
+  }, [isStaff, isAllowedForStaff, loading])
 
   if (!loading && isStaff && !isAllowedForStaff) {
     return <Navigate to="/admin/bookings" replace />

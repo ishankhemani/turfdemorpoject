@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/use-auth'
-import { useToast } from '@/hooks/use-toast'
 import type { Booking } from '@/types/database'
 
 function invalidateAdminData(queryClient: ReturnType<typeof useQueryClient>) {
@@ -19,36 +18,42 @@ function invalidateAdminData(queryClient: ReturnType<typeof useQueryClient>) {
 
 export function useAdminRealtimeSync() {
   const { user } = useAuth()
-  const { toast } = useToast()
   const queryClient = useQueryClient()
-  const shownBookingIds = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (!user?.id) return undefined
 
     const channel = supabase
-      .channel(`admin-booking-sync-${user.id}`)
+      .channel(`universal-admin-sync-${user.id}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'bookings', filter: `user_id=eq.${user.id}` },
-        (payload) => {
+        { event: '*', schema: 'public', table: 'bookings' },
+        () => {
           invalidateAdminData(queryClient)
         }
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'inventory_items', filter: `user_id=eq.${user.id}` },
+        { event: '*', schema: 'public', table: 'inventory_items' },
         () => {
           void queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
         }
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'inventory_sales', filter: `user_id=eq.${user.id}` },
+        { event: '*', schema: 'public', table: 'inventory_sales' },
         () => {
           void queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
           void queryClient.invalidateQueries({ queryKey: ['inventory-sales'] })
           void queryClient.invalidateQueries({ queryKey: ['inventory-sales-all'] })
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'customers' },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: ['customers'] })
+          void queryClient.invalidateQueries({ queryKey: ['pending-payments'] })
         }
       )
       .subscribe()
@@ -56,5 +61,5 @@ export function useAdminRealtimeSync() {
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [queryClient, toast, user?.id])
+  }, [queryClient, user?.id])
 }

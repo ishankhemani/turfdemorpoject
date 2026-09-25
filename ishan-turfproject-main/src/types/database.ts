@@ -32,6 +32,8 @@ export interface Booking extends BaseEntity {
   actual_end_time?: string | null
   sport: string
   amount: number
+  paid_amount?: number | null
+  pending_amount?: number | null
   payment_status: 'paid' | 'pending'
   payment_mode?: 'online' | 'offline' | 'split' | string | null
   online_amount?: number | null

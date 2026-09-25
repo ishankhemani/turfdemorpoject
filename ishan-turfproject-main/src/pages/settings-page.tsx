@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
-import { User, Bell, Palette, Shield, Save, RotateCcw, AlertTriangle, CheckCircle, Smartphone, Download, Info } from 'lucide-react'
+import { User, Palette, Shield, Save, RotateCcw, AlertTriangle, CheckCircle, Smartphone, Download, Info } from 'lucide-react'
 import { isRunningAsStandalone } from '@/components/common/pwa-install-prompt'
 
 const profileSchema = z.object({
@@ -43,12 +43,7 @@ export function SettingsPage() {
     return () => window.removeEventListener('appinstalled', handleInstalled)
   }, [])
 
-  const [notifications, setNotifications] = useState({
-    email: true,
-    push: true,
-    bookingReminder: true,
-    marketingOptIn: false,
-  })
+
 
   const form = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
@@ -96,7 +91,7 @@ export function SettingsPage() {
       <Tabs defaultValue="profile" className="space-y-4">
         {/* Horizontal scrollable tab pills on mobile, clean grid on desktop */}
         <div className="w-full overflow-x-auto pb-1 pt-0.5 scrollbar-none">
-          <TabsList className="inline-flex w-max min-w-full h-auto p-1 bg-muted/60 border border-border/40 rounded-xl gap-1 justify-start sm:grid sm:grid-cols-6 sm:w-full">
+          <TabsList className="inline-flex w-max min-w-full h-auto p-1 bg-muted/60 border border-border/40 rounded-xl gap-1 justify-start sm:grid sm:grid-cols-5 sm:w-full">
             <TabsTrigger
               value="profile"
               className="px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg whitespace-nowrap flex items-center justify-center gap-1.5 transition-all shrink-0"
@@ -111,14 +106,6 @@ export function SettingsPage() {
             >
               <Smartphone className="h-4 w-4 text-emerald-400 shrink-0" />
               <span>Mobile App</span>
-            </TabsTrigger>
-
-            <TabsTrigger
-              value="notifications"
-              className="px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg whitespace-nowrap flex items-center justify-center gap-1.5 transition-all shrink-0"
-            >
-              <Bell className="h-4 w-4 shrink-0" />
-              <span>Notifications</span>
             </TabsTrigger>
 
             <TabsTrigger
@@ -252,63 +239,7 @@ export function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="notifications">
-          <Card>
-            <CardHeader className="p-4 sm:p-6">
-              <CardTitle className="text-base sm:text-lg">Notification Preferences</CardTitle>
-              <CardDescription className="text-xs sm:text-sm">Manage how you receive notifications</CardDescription>
-            </CardHeader>
-            <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-5">
-              <div className="flex flex-row items-center justify-between gap-3 sm:gap-4 py-1">
-                <div className="flex-1 min-w-0 pr-2">
-                  <p className="font-medium text-xs sm:text-sm">Email Notifications</p>
-                  <p className="text-xs text-muted-foreground">Receive updates via email</p>
-                </div>
-                <Switch
-                  checked={notifications.email}
-                  onCheckedChange={(checked) => setNotifications({ ...notifications, email: checked })}
-                  className="shrink-0"
-                />
-              </div>
-              <Separator />
-              <div className="flex flex-row items-center justify-between gap-3 sm:gap-4 py-1">
-                <div className="flex-1 min-w-0 pr-2">
-                  <p className="font-medium text-xs sm:text-sm">Push Notifications</p>
-                  <p className="text-xs text-muted-foreground">Receive push notifications in browser</p>
-                </div>
-                <Switch
-                  checked={notifications.push}
-                  onCheckedChange={(checked) => setNotifications({ ...notifications, push: checked })}
-                  className="shrink-0"
-                />
-              </div>
-              <Separator />
-              <div className="flex flex-row items-center justify-between gap-3 sm:gap-4 py-1">
-                <div className="flex-1 min-w-0 pr-2">
-                  <p className="font-medium text-xs sm:text-sm">Booking Reminders</p>
-                  <p className="text-xs text-muted-foreground">Get reminded 5 minutes before each booking starts</p>
-                </div>
-                <Switch
-                  checked={notifications.bookingReminder}
-                  onCheckedChange={(checked) => setNotifications({ ...notifications, bookingReminder: checked })}
-                  className="shrink-0"
-                />
-              </div>
-              <Separator />
-              <div className="flex flex-row items-center justify-between gap-3 sm:gap-4 py-1">
-                <div className="flex-1 min-w-0 pr-2">
-                  <p className="font-medium text-xs sm:text-sm">Marketing Updates</p>
-                  <p className="text-xs text-muted-foreground">Receive promotional offers and system news</p>
-                </div>
-                <Switch
-                  checked={notifications.marketingOptIn}
-                  onCheckedChange={(checked) => setNotifications({ ...notifications, marketingOptIn: checked })}
-                  className="shrink-0"
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+
 
         <TabsContent value="appearance">
           <Card>

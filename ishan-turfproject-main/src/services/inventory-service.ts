@@ -89,7 +89,6 @@ export function useInventoryItems() {
         const { data, error } = await supabase
           .from('inventory_items')
           .select('*')
-          .eq('user_id', user.id)
           .order('name')
 
         if (error) throw error
@@ -155,11 +154,10 @@ export function useUpdateInventoryStock() {
             .from('inventory_items')
             .update(updates)
             .eq('id', id)
-            .eq('user_id', user.id)
 
           if (error && (error.message?.includes('column') || error.code === 'PGRST204')) {
             delete updates.last_restocked_qty
-            await supabase.from('inventory_items').update(updates).eq('id', id).eq('user_id', user.id)
+            await supabase.from('inventory_items').update(updates).eq('id', id)
           }
         } catch (e) {
           console.warn('Supabase inventory update failed, updating local state', e)
@@ -231,7 +229,6 @@ export function useRecordInventorySales() {
           const { data: invItems } = await supabase
             .from('inventory_items')
             .select('*')
-            .eq('user_id', user.id)
 
           if (invItems) {
             for (const sale of sales) {
@@ -296,7 +293,6 @@ export function useInventorySales(date?: string) {
           const { data, error } = await supabase
             .from('inventory_sales')
             .select('*')
-            .eq('user_id', user.id)
             .eq('date', selectedDate)
 
           if (!error && data) return data as InventorySale[]
@@ -323,7 +319,6 @@ export function useAllInventorySales(startDate?: string, endDate?: string) {
           let query = supabase
             .from('inventory_sales')
             .select('*')
-            .eq('user_id', user.id)
 
           if (startDate && endDate) {
             query = query.gte('date', startDate).lte('date', endDate)
@@ -374,14 +369,12 @@ export function useSyncBookingInventorySales() {
           const { data: existingSales } = await supabase
             .from('inventory_sales')
             .select('*')
-            .eq('user_id', user.id)
             .eq('booking_id', bookingId)
 
           if (existingSales && existingSales.length > 0) {
             const { data: invItems } = await supabase
               .from('inventory_items')
               .select('*')
-              .eq('user_id', user.id)
 
             if (invItems) {
               for (const oldSale of existingSales) {
@@ -402,7 +395,6 @@ export function useSyncBookingInventorySales() {
             await supabase
               .from('inventory_sales')
               .delete()
-              .eq('user_id', user.id)
               .eq('booking_id', bookingId)
           }
 
@@ -423,7 +415,6 @@ export function useSyncBookingInventorySales() {
             const { data: currentItems } = await supabase
               .from('inventory_items')
               .select('*')
-              .eq('user_id', user.id)
 
             if (currentItems) {
               for (const addOn of activeAddOns) {
@@ -504,14 +495,12 @@ export function useRemoveBookingInventorySales() {
           const { data: existingSales } = await supabase
             .from('inventory_sales')
             .select('*')
-            .eq('user_id', user.id)
             .eq('booking_id', bookingId)
 
           if (existingSales && existingSales.length > 0) {
             const { data: invItems } = await supabase
               .from('inventory_items')
               .select('*')
-              .eq('user_id', user.id)
 
             if (invItems) {
               for (const oldSale of existingSales) {
@@ -531,7 +520,6 @@ export function useRemoveBookingInventorySales() {
             await supabase
               .from('inventory_sales')
               .delete()
-              .eq('user_id', user.id)
               .eq('booking_id', bookingId)
           }
         } catch (e) {

@@ -1,47 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="600" height="450">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280">
   <defs>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@900&amp;display=swap');
-      .brand-text-elite {
-        font-family: 'Cinzel', 'Playfair Display', 'Georgia', serif;
-        font-weight: 900;
-        fill: #15803d;
-        font-size: 110px;
-        letter-spacing: 4px;
-      }
-      .brand-text-arena {
-        font-family: 'Cinzel', 'Playfair Display', 'Georgia', serif;
-        font-weight: 900;
-        fill: #15803d;
-        font-size: 88px;
-        letter-spacing: 6px;
-      }
-    </style>
-    <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#16a34a"/>
+    <linearGradient id="swooshGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22c55e"/>
       <stop offset="100%" stop-color="#15803d"/>
     </linearGradient>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@900&amp;display=swap');
+    </style>
   </defs>
 
-  <g transform="translate(10, 40)">
-    <!-- Batsman & Swoosh Mark -->
-    <g transform="translate(20, 45)">
-      <!-- Green Swoosh -->
-      <path d="M 50 110 C 35 45 110 20 165 45 C 195 59 208 92 190 130 C 175 162 130 188 85 190" 
-            fill="none" stroke="url(#greenGrad)" stroke-width="14" stroke-linecap="round" />
+  <!-- === BATSMAN + SWOOSH MARK (left side) === -->
+  <g transform="translate(10, 10)">
 
-      <!-- Batsman Silhouette -->
-      <circle cx="108" cy="90" r="11" fill="#18181b" />
-      <path d="M 100 102 C 90 110 82 122 78 138 L 92 142 L 105 115 L 128 128 L 135 120 Z" fill="#18181b" />
-      <path d="M 80 138 L 64 180 L 54 182 L 68 188 L 90 142 Z" fill="#18181b" />
-      <path d="M 100 136 L 110 178 L 102 182 L 118 186 L 112 138 Z" fill="#18181b" />
-      <path d="M 128 120 L 58 70 L 67 62 L 136 110 Z" fill="url(#greenGrad)" />
-    </g>
+    <!-- Green Swoosh Arc -->
+    <path d="M 120 20 C 48 26 22 82 38 128 C 52 168 90 190 130 186 C 166 182 196 156 198 120 C 200 86 174 60 140 58 C 110 58 92 78 97 100 C 102 120 122 130 138 120 C 152 112 154 92 140 84"
+          fill="none" stroke="url(#swooshGrad)" stroke-width="14" stroke-linecap="round"/>
 
-    <!-- ELITE Text -->
-    <text x="215" y="165" class="brand-text-elite">ELITE</text>
-
-    <!-- ARENA Text (Centered under ELITE) -->
-    <text x="245" y="260" class="brand-text-arena">ARENA</text>
+    <!-- Batsman Silhouette (black) -->
+    <!-- Head with helmet -->
+    <circle cx="136" cy="68" r="13" fill="#18181b"/>
+    <path d="M 124 63 C 122 57 128 49 142 49 C 154 49 159 58 154 66 Z" fill="#22c55e"/>
+    <!-- Body / torso -->
+    <path d="M 126 82 C 114 94 104 114 100 136 L 116 140 L 132 110 L 158 124 L 168 112 Z" fill="#18181b"/>
+    <!-- Back leg -->
+    <path d="M 100 136 L 80 190 L 66 193 L 82 200 L 108 140 Z" fill="#18181b"/>
+    <!-- Front leg with pads -->
+    <path d="M 126 134 L 138 188 L 126 193 L 148 198 L 142 136 Z" fill="#18181b"/>
+    <!-- Bat — diagonal up-left strike -->
+    <path d="M 158 112 L 64 42 L 76 30 L 170 100 Z" fill="url(#swooshGrad)"/>
   </g>
+
+  <!-- ELITE text (large) -->
+  <text x="240" y="160" fill="#15803d"
+        font-family="'Cinzel', 'Georgia', 'Times New Roman', serif"
+        font-weight="900" font-size="128" letter-spacing="5">ELITE</text>
+
+  <!-- ARENA text (below, slightly indented) -->
+  <text x="268" y="248" fill="#15803d"
+        font-family="'Cinzel', 'Georgia', 'Times New Roman', serif"
+        font-weight="900" font-size="80" letter-spacing="8">ARENA</text>
 </svg>

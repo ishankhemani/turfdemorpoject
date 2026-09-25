@@ -15,7 +15,6 @@ export function useExpenses() {
       const { data, error } = await supabase
         .from('expenses')
         .select('*')
-        .eq('user_id', user.id)
         .order('date', { ascending: false })
 
       if (error) throw error
@@ -62,7 +61,6 @@ export function useUpdateExpense() {
         .from('expenses')
         .update(updates)
         .eq('id', id)
-        .eq('user_id', user.id)
         .select()
         .single()
 
@@ -87,7 +85,6 @@ export function useDeleteExpense() {
         .from('expenses')
         .delete()
         .eq('id', id)
-        .eq('user_id', user.id)
 
       if (error) throw error
     },
@@ -112,7 +109,6 @@ export function useLabour() {
       const { data: labour, error } = await supabase
         .from('labour')
         .select('*')
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -120,7 +116,6 @@ export function useLabour() {
       const { data: payments } = await supabase
         .from('labour_payments')
         .select('*')
-        .eq('user_id', user.id)
         .order('date', { ascending: false })
 
       const labourList = (labour || []) as Labour[]
@@ -193,7 +188,6 @@ export function useDeleteLabour() {
         .from('labour')
         .delete()
         .eq('id', id)
-        .eq('user_id', user.id)
 
       if (error) throw error
     },
@@ -218,7 +212,6 @@ export function useLiabilities() {
       const { data: liabilities, error } = await supabase
         .from('liabilities')
         .select('*')
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -226,7 +219,6 @@ export function useLiabilities() {
       const { data: payments } = await supabase
         .from('liability_payments')
         .select('*')
-        .eq('user_id', user.id)
         .order('date', { ascending: false })
 
       const liabilitiesList = (liabilities || []) as Liability[]
@@ -326,7 +318,6 @@ export function useDeleteLiability() {
         .from('liabilities')
         .delete()
         .eq('id', id)
-        .eq('user_id', user.id)
 
       if (error) throw error
     },

@@ -48,7 +48,6 @@ async function assertSlotAvailable(params: {
   let query = supabase
     .from('bookings')
     .select('id, customer_name')
-    .eq('user_id', params.userId)
     .eq('booking_date', params.bookingDate)
     .eq('booking_time', params.bookingTime)
     .eq('area', params.area)
@@ -78,7 +77,6 @@ async function recalculateCustomer(userId: string, phone: string) {
     const { data: bookings, error } = await supabase
       .from('bookings')
       .select('customer_name, mobile_number, area, booking_date, amount, payment_status')
-      .eq('user_id', userId)
       .eq('mobile_number', phone)
       .order('booking_date', { ascending: false })
 
@@ -94,7 +92,7 @@ async function recalculateCustomer(userId: string, phone: string) {
     }>
 
     if (customerBookings.length === 0) {
-      await supabase.from('customers').delete().eq('user_id', userId).eq('phone', phone)
+      await supabase.from('customers').delete().eq('phone', phone)
       return
     }
 
@@ -115,7 +113,7 @@ async function recalculateCustomer(userId: string, phone: string) {
           total_spent: totalSpent,
           last_booking_date: latest.booking_date,
         },
-        { onConflict: 'user_id,phone' }
+        { onConflict: 'phone' } // phone-only unique key — works for both owner and employee roles
       )
   } catch (e) {
     console.warn('Recalculate customer warning', e)
@@ -160,12 +158,12 @@ export function useDashboardStats(
 
       const [{ data: bookings, error: bookingsError }, { data: expenses, error: expensesError }, { data: labourPayments, error: labourError }, { data: liabilityPayments, error: liabilityError }, { data: otherIncome }, { data: invSales }] =
         await Promise.all([
-          supabase.from('bookings').select('*').eq('user_id', user.id).gte('booking_date', start).lte('booking_date', end),
-          supabase.from('expenses').select('amount').eq('user_id', user.id).gte('date', start).lte('date', end),
-          supabase.from('labour_payments').select('amount').eq('user_id', user.id).gte('date', start).lte('date', end),
-          supabase.from('liability_payments').select('amount').eq('user_id', user.id).gte('date', start).lte('date', end),
-          supabase.from('other_income').select('amount').eq('user_id', user.id).gte('date', start).lte('date', end),
-          supabase.from('inventory_sales').select('*').eq('user_id', user.id).gte('date', start).lte('date', end),
+          supabase.from('bookings').select('*').gte('booking_date', start).lte('booking_date', end),
+          supabase.from('expenses').select('amount').gte('date', start).lte('date', end),
+          supabase.from('labour_payments').select('amount').gte('date', start).lte('date', end),
+          supabase.from('liability_payments').select('amount').gte('date', start).lte('date', end),
+          supabase.from('other_income').select('amount').gte('date', start).lte('date', end),
+          supabase.from('inventory_sales').select('*').gte('date', start).lte('date', end),
         ])
 
       if (bookingsError) throw bookingsError
@@ -297,10 +295,10 @@ export function useDailyData(daysCount: number = 10, startDateOverride?: string,
       const results = await Promise.all(
         dates.map(async (dateKey) => {
           const [{ data: bookings }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }] = await Promise.all([
-            supabase.from('bookings').select('amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source').eq('user_id', user.id).eq('booking_date', dateKey),
-            supabase.from('expenses').select('amount').eq('user_id', user.id).eq('date', dateKey),
-            supabase.from('labour_payments').select('amount').eq('user_id', user.id).eq('date', dateKey),
-            supabase.from('liability_payments').select('amount').eq('user_id', user.id).eq('date', dateKey),
+            supabase.from('bookings').select('amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source').eq('booking_date', dateKey),
+            supabase.from('expenses').select('amount').eq('date', dateKey),
+            supabase.from('labour_payments').select('amount').eq('date', dateKey),
+            supabase.from('liability_payments').select('amount').eq('date', dateKey),
           ])
 
           const bookingsList = (bookings || []) as Booking[]
@@ -355,11 +353,11 @@ export function useMonthlyData(year: number = new Date().getFullYear()) {
           const end = toDateKey(new Date(year, month + 1, 0))
 
           const [{ data: bookings }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }, { data: otherIncome }] = await Promise.all([
-            supabase.from('bookings').select('amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source').eq('user_id', user.id).gte('booking_date', start).lte('booking_date', end),
-            supabase.from('expenses').select('amount').eq('user_id', user.id).gte('date', start).lte('date', end),
-            supabase.from('labour_payments').select('amount').eq('user_id', user.id).gte('date', start).lte('date', end),
-            supabase.from('liability_payments').select('amount').eq('user_id', user.id).gte('date', start).lte('date', end),
-            supabase.from('other_income').select('amount').eq('user_id', user.id).gte('date', start).lte('date', end),
+            supabase.from('bookings').select('amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source').gte('booking_date', start).lte('booking_date', end),
+            supabase.from('expenses').select('amount').gte('date', start).lte('date', end),
+            supabase.from('labour_payments').select('amount').gte('date', start).lte('date', end),
+            supabase.from('liability_payments').select('amount').gte('date', start).lte('date', end),
+            supabase.from('other_income').select('amount').gte('date', start).lte('date', end),
           ])
 
           const bookingsList = (bookings || []) as Booking[]
@@ -412,7 +410,6 @@ export function useTodayBookings() {
       const { data, error } = await supabase
         .from('bookings')
         .select('*')
-        .eq('user_id', user.id)
         .eq('booking_date', today)
         .order('booking_time', { ascending: true })
 
@@ -435,7 +432,6 @@ export function useBookings(date?: string) {
       let query = supabase
         .from('bookings')
         .select('*')
-        .eq('user_id', user.id)
         .order('booking_date', { ascending: false })
         .order('booking_time', { ascending: true })
 
@@ -607,7 +603,6 @@ export function useUpdateBooking() {
         .from('bookings')
         .select('*')
         .eq('id', id)
-        .eq('user_id', authUser.id)
         .single()
 
       if (oldError && oldError.code !== 'PGRST116') {
@@ -625,7 +620,6 @@ export function useUpdateBooking() {
         .from('bookings')
         .update(updates)
         .eq('id', id)
-        .eq('user_id', authUser.id)
         .select()
         .single()
 
@@ -667,7 +661,6 @@ export function useUpdateBooking() {
           .from('bookings')
           .update(standardUpdates)
           .eq('id', id)
-          .eq('user_id', authUser.id)
           .select()
           .single()
 
@@ -698,7 +691,7 @@ export function useUpdateBooking() {
             if (updates.payment_status) minUpdates.payment_status = updates.payment_status
             if (updates.payment_mode !== undefined) minUpdates.payment_mode = updates.payment_mode
             if (updates.notes !== undefined) minUpdates.notes = updates.notes
-            const minRes = await supabase.from('bookings').update(minUpdates).eq('id', id).eq('user_id', authUser.id).select().single()
+            const minRes = await supabase.from('bookings').update(minUpdates).eq('id', id).select().single()
             if (minRes.error) throw new Error(minRes.error.message || 'Database error updating booking')
             data = minRes.data
           } else {
@@ -730,11 +723,10 @@ export function useDeleteBooking() {
         .from('bookings')
         .select('mobile_number')
         .eq('id', id)
-        .eq('user_id', user.id)
         .single()
       if (fetchError) throw fetchError
 
-      const { error } = await supabase.from('bookings').delete().eq('id', id).eq('user_id', user.id)
+      const { error } = await supabase.from('bookings').delete().eq('id', id)
       if (error) throw error
 
       const deleted = booking as { mobile_number: string }

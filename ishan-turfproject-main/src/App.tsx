@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from '@/hooks/use-auth'
 import { ThemeProvider } from '@/stores/theme-store'
 import { AppLayout, ProtectedRoute, StaffGuard } from '@/components/layout'
-import { Toaster } from '@/components/ui/toaster'
 import { PageLoadingState } from '@/components/common/loading'
 import { PwaInstallPrompt } from '@/components/common/pwa-install-prompt'
 
@@ -79,7 +78,6 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <AuthProvider>
           <RouterProvider router={router} />
-          <Toaster />
           <PwaInstallPrompt />
         </AuthProvider>
       </ThemeProvider>

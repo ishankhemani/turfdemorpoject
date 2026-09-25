@@ -122,7 +122,7 @@ export function CustomerSite() {
   ] as const
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#090909] text-white">
+    <main className="min-h-screen bg-[#090909] text-white">
       <PublicNavbar />
 
       <section id="home" className="relative flex min-h-screen items-center overflow-hidden pt-20">

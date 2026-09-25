@@ -23,7 +23,7 @@ export function AppLayout() {
   const title = pageTitles[location.pathname] || ''
 
   return (
-    <div className="min-h-[100dvh] w-full bg-background overflow-x-hidden touch-smooth">
+    <div className="min-h-[100dvh] w-full bg-background overflow-x-hidden overflow-y-auto touch-smooth app-shell">
       <Sidebar
         collapsed={collapsed}
         setCollapsed={setCollapsed}
@@ -41,7 +41,7 @@ export function AppLayout() {
           title={title}
         />
 
-        <main className="flex-1 p-3.5 sm:p-4 lg:p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]">
+        <main className="flex-1 p-3 sm:p-4 lg:p-6 pb-[calc(1.4rem+env(safe-area-inset-bottom,0px))] pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}

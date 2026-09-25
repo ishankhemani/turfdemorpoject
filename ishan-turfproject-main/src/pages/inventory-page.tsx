@@ -206,9 +206,11 @@ export function InventoryPage() {
                     ) : (
                       filteredItems.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                          <td className="px-4 sm:px-6 py-4 font-medium text-white flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                            {item.name}
+                          <td className="px-4 sm:px-6 py-4 font-medium text-white min-w-0">
+                            <div className="flex items-start gap-2 min-w-0">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-2"></span>
+                              <span className="min-w-0 break-words whitespace-normal">{item.name}</span>
+                            </div>
                           </td>
                           <td className="px-4 sm:px-6 py-4 text-slate-400">{item.category}</td>
                           <td className="px-4 sm:px-6 py-4 text-emerald-400 font-semibold">₹{item.default_price}</td>
@@ -388,10 +390,10 @@ export function InventoryPage() {
 
                         return (
                           <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                            <td className="px-4 sm:px-6 py-4 font-medium text-white">
-                              <div>
-                                <p className="text-slate-100 font-semibold">{item.name}</p>
-                                <span className="text-[11px] text-slate-400">{item.category} • ₹{item.default_price}/unit</span>
+                            <td className="px-4 sm:px-6 py-4 font-medium text-white min-w-0">
+                              <div className="min-w-0 break-words whitespace-normal">
+                                <p className="text-slate-100 font-semibold break-words">{item.name}</p>
+                                <span className="text-[11px] text-slate-400 break-words">{item.category} • ₹{item.default_price}/unit</span>
                               </div>
                             </td>
                             <td className="px-4 sm:px-6 py-4">
@@ -463,7 +465,9 @@ export function InventoryPage() {
                     ) : (
                       filteredSalesLog.map((sale, idx) => (
                         <tr key={sale.id || idx} className="hover:bg-slate-800/40 transition-colors">
-                          <td className="px-4 sm:px-6 py-4 font-medium text-white">{sale.item_name}</td>
+                          <td className="px-4 sm:px-6 py-4 font-medium text-white min-w-0">
+                            <span className="min-w-0 break-words whitespace-normal">{sale.item_name}</span>
+                          </td>
                           <td className="px-4 sm:px-6 py-4 text-slate-400">{sale.date}</td>
                           <td className="px-4 sm:px-6 py-4 text-white font-semibold">{sale.qty_sold} units</td>
                           <td className="px-4 sm:px-6 py-4">

@@ -24,7 +24,7 @@ export function Navbar({ onMenuClick, title }: NavbarProps) {
   useAdminRealtimeSync()
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-[4rem] items-center gap-4 border-b bg-background/80 backdrop-blur-xl px-4 lg:px-6 pt-[env(safe-area-inset-top,0px)]">
+    <header className="sticky top-0 z-30 flex min-h-[4rem] items-center gap-4 border-b border-border/60 bg-background/75 backdrop-blur-xl px-4 lg:px-6 pt-[env(safe-area-inset-top,0px)] shadow-[0_10px_30px_rgba(2,6,23,0.15)]">
       <Button
         variant="ghost"
         size="icon"

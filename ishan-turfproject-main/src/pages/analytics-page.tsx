@@ -14,6 +14,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { useMonthlyData, useDashboardStats, useBookings, useTodayBookings } from '@/services/dashboard-service'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAreaStats, useCustomers } from '@/services/customers-service'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -68,6 +69,25 @@ export function AnalyticsPage() {
       bookings: c.total_bookings,
       spent: c.total_spent,
     }))
+  // Audit: recompute totals from bookings (read-only) to detect mismatches
+  const [isAuditOpen, setIsAuditOpen] = useState(false)
+  const recomputedCustomers = (() => {
+    const map: Record<string, { name: string; bookings: number; spent: number }> = {}
+    ;(allBookings || []).forEach((b) => {
+      const phone = (b.mobile_number || 'unknown').trim()
+      if (!map[phone]) map[phone] = { name: b.customer_name || 'Unknown', bookings: 0, spent: 0 }
+      map[phone].bookings += 1
+      if (b.payment_status === 'paid' || Number(b.paid_amount || 0) > 0) {
+        map[phone].spent += Number(b.paid_amount ?? b.amount ?? 0)
+      }
+    })
+    return Object.values(map).sort((a, b) => b.spent - a.spent).slice(0, 10)
+  })()
+
+  // Prefer recomputed totals from bookings for display if available (read-only)
+  const displayedTopCustomers = (recomputedCustomers && recomputedCustomers.length > 0)
+    ? recomputedCustomers.slice(0, 5).map(c => ({ name: c.name, bookings: c.bookings, spent: c.spent }))
+    : topCustomers
 
   return (
     <div className="space-y-6">
@@ -181,14 +201,17 @@ export function AnalyticsPage() {
           <CardTitle className="text-base">Top Customers</CardTitle>
         </CardHeader>
         <CardContent>
-          {topCustomers.length === 0 ? (
+            <div className="flex justify-end mb-3">
+              <button className="text-xs text-emerald-400 underline" onClick={() => setIsAuditOpen(true)}>Run Audit</button>
+            </div>
+              {displayedTopCustomers.length === 0 ? (
             <div className="py-8 text-center text-muted-foreground text-sm flex flex-col items-center justify-center gap-2">
               <Users className="w-8 h-8 opacity-40" />
               <span>No customer records found yet. Customers will appear here automatically when bookings are created.</span>
             </div>
           ) : (
             <div className="space-y-3">
-              {topCustomers.map((customer, index) => (
+              {displayedTopCustomers.map((customer, index) => (
                 <motion.div
                   key={customer.name}
                   initial={{ opacity: 0, x: -10 }}
@@ -212,6 +235,30 @@ export function AnalyticsPage() {
           )}
         </CardContent>
       </Card>
+      {isAuditOpen && (
+        <Dialog open={isAuditOpen} onOpenChange={(v) => setIsAuditOpen(v)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Top Customers Audit (Read-only)</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+              {recomputedCustomers.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No bookings found to audit.</div>
+              ) : (
+                recomputedCustomers.map((c, idx) => (
+                  <div key={c.name} className="flex justify-between p-2 border-b">
+                    <div>
+                      <div className="font-medium">{idx + 1}. {c.name}</div>
+                      <div className="text-xs text-muted-foreground">{c.bookings} bookings</div>
+                    </div>
+                    <div className="font-semibold">{formatCurrency(c.spent)}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

@@ -11,6 +11,19 @@ import { PageLoadingState } from '@/components/common/loading'
 import { Download, Calendar, IndianRupee, Users, TrendingUp, Wallet, Clock } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
+function distributeSplitAmounts(onAmt: number, offAmt: number, paidAmount: number): [number, number] {
+  const explicitSum = Number(onAmt || 0) + Number(offAmt || 0)
+  if (paidAmount <= 0) return [0, 0]
+  if (explicitSum <= 0) {
+    const on = Math.floor(paidAmount / 2)
+    return [on, paidAmount - on]
+  }
+  const ratio = Number(onAmt || 0) / explicitSum
+  const on = Math.round(paidAmount * ratio)
+  const off = paidAmount - on
+  return [on, off]
+}
+
 export function ReportsPage() {
   const [reportType, setReportType] = useState<'daily' | 'monthly' | 'custom'>('daily')
   const [customStartDate, setCustomStartDate] = useState<string>(new Date().toISOString().split('T')[0])
@@ -44,32 +57,37 @@ export function ReportsPage() {
     return true
   })
 
-  const paidBookings = activeBookings.filter((b) => b.payment_status === 'paid')
-  const pendingBookings = activeBookings.filter((b) => b.payment_status === 'pending')
-
+  // derive paid/pending amounts using paid_amount and pending_amount if available
   let onlineRevenue = 0
   let offlineRevenue = 0
-  paidBookings.forEach((b) => {
+  let pendingAmount = 0
+  let pendingCount = 0
+  activeBookings.forEach((b) => {
     const isOnlineBooking = Boolean(b.transaction_id || b.source === 'website' || b.payment_mode === 'online')
     const mode = b.payment_mode || (isOnlineBooking ? 'online' : 'offline')
-    const amt = Number(b.amount || 0)
-    if (mode === 'split') {
-      let onAmt = Number(b.online_amount || 0)
-      let offAmt = Number(b.offline_amount || 0)
-      if (onAmt === 0 && offAmt === 0) {
-        onAmt = Math.floor(amt / 2)
-        offAmt = amt - onAmt
+    const totalAmt = Number(b.amount || 0)
+    const paidAmt = Number((b as any).paid_amount ?? 0)
+    const pendingAmt = Number((b as any).pending_amount ?? Math.max(0, totalAmt - paidAmt))
+
+    // sum pending across bookings
+    if (pendingAmt > 0) {
+      pendingAmount += pendingAmt
+      pendingCount++
+    }
+
+    // allocate actually received (paidAmt) into online/offline
+    if (paidAmt > 0) {
+      if (mode === 'split') {
+        const [onAmt, offAmt] = distributeSplitAmounts(Number((b as any).online_amount || 0), Number((b as any).offline_amount || 0), paidAmt)
+        onlineRevenue += onAmt
+        offlineRevenue += offAmt
+      } else if (mode === 'online' || isOnlineBooking) {
+        onlineRevenue += paidAmt
+      } else {
+        offlineRevenue += paidAmt
       }
-      onlineRevenue += onAmt
-      offlineRevenue += offAmt
-    } else if (mode === 'online' || isOnlineBooking) {
-      onlineRevenue += amt
-    } else {
-      offlineRevenue += amt
     }
   })
-
-  const pendingAmount = pendingBookings.reduce((s, b) => s + Number(b.amount || 0), 0)
 
   // Top summary stats based on current report view
   const displayRevenue = reportType === 'monthly'
@@ -347,7 +365,7 @@ export function ReportsPage() {
               <div className="min-w-0">
                 <p className="text-xs text-slate-400">Pending (Unpaid)</p>
                 <p className="text-xl font-bold text-red-400 truncate">{formatCurrency(pendingAmount)}</p>
-                <p className="text-[10px] text-slate-500">{pendingBookings.length} booking(s) unpaid</p>
+                <p className="text-[10px] text-slate-500">{pendingCount} booking(s) unpaid</p>
               </div>
             </div>
           </CardContent>

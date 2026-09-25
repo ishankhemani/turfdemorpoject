@@ -159,6 +159,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Development-only mock auth: if VITE_DEV_MOCK_AUTH is true, allow local mock sign-in
+  const devMockAuth = import.meta.env.VITE_DEV_MOCK_AUTH === 'true'
+
   const signUp = async (email: string, password: string, fullName: string) => {
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -189,6 +192,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signIn = async (email: string, password: string) => {
+    if (devMockAuth) {
+      // create a faux user object for dev testing
+      const fakeUser: any = {
+        id: 'dev-user-id',
+        email,
+      }
+      const fakeProfile: any = {
+        id: 'dev-user-id',
+        full_name: 'Dev User',
+        email,
+        role: email.includes('staff') ? 'staff' : 'admin',
+      }
+      localStorage.setItem('elite_primary_owner_id', fakeUser.id)
+      setState((prev) => ({
+        ...prev,
+        rawUser: fakeUser,
+        profile: fakeProfile,
+        session: { user: fakeUser } as any,
+        sharedOwnerId: fakeUser.id,
+      }))
+      return
+    }
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,

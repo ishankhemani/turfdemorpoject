@@ -14,6 +14,7 @@ import {
   Bar,
 } from 'recharts'
 import { useDashboardStats, useMonthlyData, useTodayBookings } from '@/services/dashboard-service'
+import { useNavigate } from 'react-router-dom'
 import { StatCard } from '@/components/common/stat-card'
 import { LoadingState, PageLoadingState } from '@/components/common/loading'
 import { EmptyState } from '@/components/common/empty-state'
@@ -60,6 +61,7 @@ export function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useDashboardStats(dateFilter, customStartDate, customEndDate)
   const { data: monthlyData, isLoading: monthlyLoading } = useMonthlyData()
   const { data: todayBookings, isLoading: bookingsLoading } = useTodayBookings()
+  const navigate = useNavigate()
 
   if (statsLoading) {
     return <PageLoadingState />
@@ -180,16 +182,7 @@ export function DashboardPage() {
             delay={5}
           />
         </motion.div>
-        <motion.div variants={item}>
-          <StatCard
-            title="Add-on & Drinks Sales"
-            value={formatCurrency(stats?.addOnsRevenue || 0)}
-            icon={IndianRupee}
-            iconClassName="bg-emerald-500/10 text-emerald-400"
-            description={`${stats?.bottleSalesQty || 0} bottle(s) & drinks sold`}
-            delay={6}
-          />
-        </motion.div>
+        {/* Add-ons & drinks sales removed as per request */}
       </motion.div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -360,7 +353,7 @@ export function DashboardPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-base font-medium">Today's Bookings</CardTitle>
-              <Button variant="ghost" size="sm" className="text-xs">
+              <Button variant="ghost" size="sm" className="text-xs" onClick={() => navigate('/admin/bookings?date=today')}>
                 View all <ChevronRight className="ml-1 h-3 w-3" />
               </Button>
             </CardHeader>
@@ -411,13 +404,13 @@ export function DashboardPage() {
                   ))}
                 </div>
               ) : (
-                <EmptyState
+                  <EmptyState
                   icon={CalendarDays}
                   title="No bookings today"
                   description="Create a new booking to get started"
                   action={{
                     label: 'Create Booking',
-                    onClick: () => {},
+                    onClick: () => navigate('/admin/bookings?new=1&date=today'),
                   }}
                 />
               )}

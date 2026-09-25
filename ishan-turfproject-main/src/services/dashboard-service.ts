@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/use-auth'
 import { ensureUserExists } from '@/lib/ensure-user-exists'
@@ -31,6 +32,19 @@ export interface MonthlyData {
 
 type MoneyRow = { amount: number | string }
 type BookingWrite = Omit<Booking, 'id' | 'user_id' | 'created_at' | 'updated_at'>
+
+function distributeSplitAmounts(onAmt: number, offAmt: number, paidAmount: number): [number, number] {
+  const explicitSum = Number(onAmt || 0) + Number(offAmt || 0)
+  if (paidAmount <= 0) return [0, 0]
+  if (explicitSum <= 0) {
+    const on = Math.floor(paidAmount / 2)
+    return [on, paidAmount - on]
+  }
+  const ratio = Number(onAmt || 0) / explicitSum
+  const on = Math.round(paidAmount * ratio)
+  const off = paidAmount - on
+  return [on, off]
+}
 
 const DEFAULT_SLOT_COUNT = 17
 const toDateKey = (date: Date) => date.toISOString().split('T')[0]
@@ -134,8 +148,9 @@ export function useDashboardStats(
   customEndDate?: string
 ) {
   const { user } = useAuth()
+  const queryClient = useQueryClient()
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['dashboard-stats', user?.id, dateFilter, customStartDate, customEndDate],
     queryFn: async (): Promise<DashboardStats> => {
       if (!user) throw new Error('Not authenticated')
@@ -183,34 +198,33 @@ export function useDashboardStats(
         const isOnlineBooking = Boolean(b.transaction_id || b.source === 'website' || b.payment_mode === 'online')
         const mode = b.payment_mode || (isOnlineBooking ? 'online' : 'offline')
         const totalAmount = Number(b.amount || 0)
-        const isPaid = b.payment_status === 'paid'
+        const paidAmount = Number(b.paid_amount ?? 0)
+        const pendingAmount = Number(b.pending_amount ?? Math.max(0, totalAmount - paidAmount))
+        const isFullyPaid = (b.payment_status === 'paid') || paidAmount >= totalAmount
 
-        // Revenue is only counted when the booking is PAID
-        if (isPaid) {
+        // Count revenue based on actual paid amount (paid_amount)
+        if (paidAmount > 0) {
           if (mode === 'split') {
-            let onAmt = Number(b.online_amount || 0)
-            let offAmt = Number(b.offline_amount || 0)
-            if (onAmt === 0 && offAmt === 0) {
-              onAmt = Math.floor(totalAmount / 2)
-              offAmt = totalAmount - onAmt
-            }
+            const [onAmt, offAmt] = distributeSplitAmounts(Number(b.online_amount || 0), Number(b.offline_amount || 0), paidAmount)
             onlineRevenue += onAmt
             offlineRevenue += offAmt
           } else if (mode === 'online' || isOnlineBooking) {
-            onlineRevenue += totalAmount
+            onlineRevenue += paidAmount
           } else {
-            offlineRevenue += totalAmount
+            offlineRevenue += paidAmount
           }
         }
 
-        if (isPaid && Array.isArray(b.add_ons)) {
+        // Add-ons revenue should be counted proportionally from the paid portion
+        if (paidAmount > 0 && Array.isArray(b.add_ons)) {
+          const paidRatio = totalAmount > 0 ? Math.min(1, paidAmount / totalAmount) : 1
           b.add_ons.forEach((item) => {
             const qty = Number(item.qty || 0)
             const price = Number(item.price || 0)
-            const amt = price * qty
+            const amt = price * qty * paidRatio
             addOnsRevenue += amt
-            bottleSalesQty += qty
-            bottleSalesRevenue += amt
+            bottleSalesQty += qty * paidRatio
+            bottleSalesRevenue += price * qty * paidRatio
           })
         }
       })
@@ -265,6 +279,34 @@ export function useDashboardStats(
     enabled: !!user,
     refetchInterval: 60000,
   })
+
+  // Supabase realtime subscription: invalidate and refetch relevant queries on bookings changes
+  useEffect(() => {
+    if (!user) return
+    try {
+      const channel = supabase
+        .channel('public:bookings')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+          invalidateBusinessQueries(queryClient)
+        })
+        .subscribe()
+
+      return () => {
+        try {
+          // unsubscribe channel
+          // @ts-ignore - supabase types for channel unsubscribe
+          channel.unsubscribe()
+        } catch (e) {
+          // best-effort cleanup
+        }
+      }
+    } catch (e) {
+      // ignore realtime setup failures
+      return
+    }
+  }, [user?.id, queryClient])
+
+  return query
 }
 
 export function useDailyData(daysCount: number = 10, startDateOverride?: string, endDateOverride?: string) {
@@ -295,7 +337,7 @@ export function useDailyData(daysCount: number = 10, startDateOverride?: string,
       const results = await Promise.all(
         dates.map(async (dateKey) => {
           const [{ data: bookings }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }] = await Promise.all([
-            supabase.from('bookings').select('amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source').eq('booking_date', dateKey),
+            supabase.from('bookings').select('amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source').eq('booking_date', dateKey),
             supabase.from('expenses').select('amount').eq('date', dateKey),
             supabase.from('labour_payments').select('amount').eq('date', dateKey),
             supabase.from('liability_payments').select('amount').eq('date', dateKey),
@@ -304,20 +346,16 @@ export function useDailyData(daysCount: number = 10, startDateOverride?: string,
           const bookingsList = (bookings || []) as Booking[]
           let revenue = 0
           bookingsList.forEach((b) => {
-            if (b.payment_status !== 'paid') return
+            const total = Number(b.amount || 0)
+            const paidAmt = Number((b as any).paid_amount ?? 0)
+            if (paidAmt <= 0) return
             const isOnlineBooking = Boolean(b.transaction_id || b.source === 'website' || b.payment_mode === 'online')
             const mode = b.payment_mode || (isOnlineBooking ? 'online' : 'offline')
-            const amt = Number(b.amount || 0)
             if (mode === 'split') {
-              let onAmt = Number(b.online_amount || 0)
-              let offAmt = Number(b.offline_amount || 0)
-              if (onAmt === 0 && offAmt === 0) {
-                onAmt = Math.floor(amt / 2)
-                offAmt = amt - onAmt
-              }
+              const [onAmt, offAmt] = distributeSplitAmounts(Number((b as any).online_amount || 0), Number((b as any).offline_amount || 0), paidAmt)
               revenue += onAmt + offAmt
             } else {
-              revenue += amt
+              revenue += paidAmt
             }
           })
 
@@ -353,7 +391,7 @@ export function useMonthlyData(year: number = new Date().getFullYear()) {
           const end = toDateKey(new Date(year, month + 1, 0))
 
           const [{ data: bookings }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }, { data: otherIncome }] = await Promise.all([
-            supabase.from('bookings').select('amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source').gte('booking_date', start).lte('booking_date', end),
+            supabase.from('bookings').select('amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source').gte('booking_date', start).lte('booking_date', end),
             supabase.from('expenses').select('amount').gte('date', start).lte('date', end),
             supabase.from('labour_payments').select('amount').gte('date', start).lte('date', end),
             supabase.from('liability_payments').select('amount').gte('date', start).lte('date', end),
@@ -363,20 +401,16 @@ export function useMonthlyData(year: number = new Date().getFullYear()) {
           const bookingsList = (bookings || []) as Booking[]
           let bookingRev = 0
           bookingsList.forEach((b) => {
-            if (b.payment_status !== 'paid') return
+            const total = Number(b.amount || 0)
+            const paidAmt = Number((b as any).paid_amount ?? 0)
+            if (paidAmt <= 0) return
             const isOnlineBooking = Boolean(b.transaction_id || b.source === 'website' || b.payment_mode === 'online')
             const mode = b.payment_mode || (isOnlineBooking ? 'online' : 'offline')
-            const amt = Number(b.amount || 0)
             if (mode === 'split') {
-              let onAmt = Number(b.online_amount || 0)
-              let offAmt = Number(b.offline_amount || 0)
-              if (onAmt === 0 && offAmt === 0) {
-                onAmt = Math.floor(amt / 2)
-                offAmt = amt - onAmt
-              }
+              const [onAmt, offAmt] = distributeSplitAmounts(Number((b as any).online_amount || 0), Number((b as any).offline_amount || 0), paidAmt)
               bookingRev += onAmt + offAmt
             } else {
-              bookingRev += amt
+              bookingRev += paidAmt
             }
           })
 

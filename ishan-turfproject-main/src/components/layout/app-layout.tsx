@@ -23,7 +23,7 @@ export function AppLayout() {
   const title = pageTitles[location.pathname] || ''
 
   return (
-    <div className="min-h-[100dvh] w-full bg-background overflow-x-hidden overflow-y-auto touch-smooth app-shell">
+    <div className="min-h-screen w-full bg-background overflow-x-hidden overflow-y-auto touch-smooth app-shell">
       <Sidebar
         collapsed={collapsed}
         setCollapsed={setCollapsed}

@@ -228,10 +228,11 @@ export function BookingPage() {
       form.setValue('online_amount', grandTotal)
       form.setValue('offline_amount', 0)
     } else if (watchPaymentMode === 'split') {
-      // Clamp online to new grandTotal, recalculate offline
+      // When grand total changes, only clamp each side individually to <= grandTotal
       const currentOnline = Math.min(form.getValues('online_amount') || 0, grandTotal)
+      const currentOffline = Math.min(form.getValues('offline_amount') || 0, grandTotal)
       form.setValue('online_amount', currentOnline)
-      form.setValue('offline_amount', grandTotal - currentOnline)
+      form.setValue('offline_amount', currentOffline)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grandTotal])
@@ -263,6 +264,23 @@ export function BookingPage() {
     })
     setIsDialogOpen(true)
   }
+
+  // If URL contains query params to open new booking or filter by date, respond without changing business logic
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const date = params.get('date')
+      const openNew = params.get('new')
+      if (date) {
+        setSelectedDate(date)
+      }
+      if (openNew === '1') {
+        handleOpenNewDialog()
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [])
 
   const resolvePaymentMode = (b: Partial<Booking>): 'online' | 'offline' | 'split' => {
     if (b.payment_mode === 'online' || b.payment_mode === 'offline' || b.payment_mode === 'split') {
@@ -1071,13 +1089,8 @@ export function BookingPage() {
               {watchPaymentMode === 'split' && (
                 <div className="space-y-2 bg-slate-950/60 p-3 rounded-lg border border-slate-800">
                   <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                    <span>Split total must equal ₹{grandTotal}</span>
-                    <span className={cn(
-                      'font-bold',
-                      (form.watch('online_amount') || 0) + (form.watch('offline_amount') || 0) === grandTotal
-                        ? 'text-emerald-400'
-                        : 'text-red-400'
-                    )}>
+                    <span>Split amounts are optional — enter actual amounts paid.</span>
+                    <span className={cn('font-bold', (form.watch('online_amount') || 0) + (form.watch('offline_amount') || 0) === grandTotal ? 'text-emerald-400' : 'text-amber-400')}>
                       ₹{(form.watch('online_amount') || 0) + (form.watch('offline_amount') || 0)} / ₹{grandTotal}
                     </span>
                   </div>
@@ -1092,7 +1105,6 @@ export function BookingPage() {
                         onChange={(e) => {
                           const val = Math.max(0, Math.min(grandTotal, parseInt(e.target.value, 10) || 0))
                           form.setValue('online_amount', val)
-                          form.setValue('offline_amount', Math.max(0, grandTotal - val))
                         }}
                         className="bg-slate-900 border-slate-700 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
@@ -1107,7 +1119,6 @@ export function BookingPage() {
                         onChange={(e) => {
                           const val = Math.max(0, Math.min(grandTotal, parseInt(e.target.value, 10) || 0))
                           form.setValue('offline_amount', val)
-                          form.setValue('online_amount', Math.max(0, grandTotal - val))
                         }}
                         className="bg-slate-900 border-slate-700 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { useInventoryItems, useUpdateInventoryStock, useAllInventorySales } from '@/services/inventory-service'
+import { useInventoryItems, useUpdateInventoryStock, useAllInventorySales, useInventoryAudit } from '@/services/inventory-service'
 import type { InventoryItem, InventorySale } from '@/types/database'
 
 function formatDateNice(isoString?: string | null) {
@@ -50,6 +50,8 @@ export function InventoryPage() {
   const todayStr = new Date().toISOString().split('T')[0]
   const { data: inventoryItems = [], isLoading, refetch } = useInventoryItems()
   const updateStock = useUpdateInventoryStock()
+  const { data: audit = [], refetch: refetchAudit } = useInventoryAudit()
+  const [isAuditOpen, setIsAuditOpen] = useState(false)
 
   // Sales Date Filter State
   const [dateMode, setDateMode] = useState<'today' | 'custom' | 'all'>('today')
@@ -157,6 +159,13 @@ export function InventoryPage() {
               >
                 All Categories
               </Button>
+              <Button
+                variant="outline"
+                onClick={async () => { setIsAuditOpen(true); await refetchAudit() }}
+                className="border-slate-700 text-slate-300"
+              >
+                Audit Inventory
+              </Button>
               {categories.map((cat) => (
                 <Button
                   key={cat}
@@ -209,7 +218,7 @@ export function InventoryPage() {
                           <td className="px-4 sm:px-6 py-4 font-medium text-white min-w-0">
                             <div className="flex items-start gap-2 min-w-0">
                               <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-2"></span>
-                              <span className="min-w-0 break-words whitespace-normal">{item.name}</span>
+                              <span className="min-w-0 truncate block">{item.name}</span>
                             </div>
                           </td>
                           <td className="px-4 sm:px-6 py-4 text-slate-400">{item.category}</td>
@@ -251,6 +260,52 @@ export function InventoryPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* INVENTORY AUDIT DIALOG */}
+        {isAuditOpen && (
+          <Dialog open={isAuditOpen} onOpenChange={(v) => setIsAuditOpen(v)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Inventory Audit — DB vs Sales</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="text-[11px] uppercase text-slate-400">
+                    <tr>
+                      <th>Item</th>
+                      <th>DB Qty</th>
+                      <th>Total Sold</th>
+                      <th>Computed Remaining</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {audit && audit.length > 0 ? (
+                      audit.map((row: any) => (
+                        <tr key={row.id} className="border-t border-slate-800/40">
+                          <td className="py-2">{row.name}</td>
+                          <td className="py-2">{row.dbQuantity}</td>
+                          <td className="py-2">{row.totalSold}</td>
+                          <td className="py-2">{row.computedQuantity}</td>
+                          <td className="py-2 text-right">
+                            {Number(row.dbQuantity) !== Number(row.computedQuantity) && (
+                              <Button size="sm" onClick={async () => {
+                                await updateStock.mutateAsync({ id: row.id, quantity: Number(row.computedQuantity) })
+                                await refetchAudit()
+                              }}>Fix</Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan={5} className="py-4 text-slate-500">No audit data available.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
 
         {/* SALES RECORDS TAB */}
         <TabsContent value="sales" className="space-y-6">
@@ -391,9 +446,9 @@ export function InventoryPage() {
                         return (
                           <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
                             <td className="px-4 sm:px-6 py-4 font-medium text-white min-w-0">
-                              <div className="min-w-0 break-words whitespace-normal">
-                                <p className="text-slate-100 font-semibold break-words">{item.name}</p>
-                                <span className="text-[11px] text-slate-400 break-words">{item.category} • ₹{item.default_price}/unit</span>
+                              <div className="min-w-0">
+                                <p className="text-slate-100 font-semibold truncate">{item.name}</p>
+                                <span className="text-[11px] text-slate-400 truncate block">{item.category} • ₹{item.default_price}/unit</span>
                               </div>
                             </td>
                             <td className="px-4 sm:px-6 py-4">
@@ -466,7 +521,7 @@ export function InventoryPage() {
                       filteredSalesLog.map((sale, idx) => (
                         <tr key={sale.id || idx} className="hover:bg-slate-800/40 transition-colors">
                           <td className="px-4 sm:px-6 py-4 font-medium text-white min-w-0">
-                            <span className="min-w-0 break-words whitespace-normal">{sale.item_name}</span>
+                            <span className="min-w-0 truncate block">{sale.item_name}</span>
                           </td>
                           <td className="px-4 sm:px-6 py-4 text-slate-400">{sale.date}</td>
                           <td className="px-4 sm:px-6 py-4 text-white font-semibold">{sale.qty_sold} units</td>

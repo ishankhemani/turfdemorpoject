@@ -89,6 +89,7 @@ export function useInventoryItems() {
         const { data, error } = await supabase
           .from('inventory_items')
           .select('*')
+          .eq('user_id', user.id)
           .order('name')
 
         if (error) throw error
@@ -114,7 +115,13 @@ export function useInventoryItems() {
           return getLocalInventory()
         }
 
-        return data as InventoryItem[]
+        // Deduplicate by item name (case-insensitive) to avoid duplicate rows
+        const seen = new Map<string, InventoryItem>()
+        ;(data as InventoryItem[]).forEach((row) => {
+          const key = (row.name || '').trim().toLowerCase()
+          if (!seen.has(key)) seen.set(key, row)
+        })
+        return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name))
       } catch (e) {
         console.warn('Using local inventory fallback', e)
         return getLocalInventory()
@@ -145,19 +152,33 @@ export function useUpdateInventoryStock() {
 
       if (user) {
         try {
-          const updates: Record<string, any> = { last_edited: nowIso }
-          if (quantity !== undefined) updates.quantity = quantity
-          if (default_price !== undefined) updates.default_price = default_price
-          if (restocked_qty !== undefined && restocked_qty > 0) updates.last_restocked_qty = restocked_qty
+          // If restocked_qty is provided without an explicit absolute `quantity`,
+          // perform a safe increment on the server: read current qty and add restocked_qty.
+          if (restocked_qty !== undefined && restocked_qty > 0 && quantity === undefined) {
+            const { data: currentRows } = await supabase.from('inventory_items').select('quantity').eq('id', id).limit(1).single()
+            const serverQty = Number((currentRows && (currentRows as any).quantity) || 0)
+            const newQty = Math.max(0, serverQty + restocked_qty)
+            const updates: Record<string, any> = { last_edited: nowIso, quantity: newQty, last_restocked_qty: restocked_qty }
+            const { error } = await supabase.from('inventory_items').update(updates).eq('id', id)
+            if (error && (error.message?.includes('column') || error.code === 'PGRST204')) {
+              delete updates.last_restocked_qty
+              await supabase.from('inventory_items').update(updates).eq('id', id)
+            }
+          } else {
+            const updates: Record<string, any> = { last_edited: nowIso }
+            if (quantity !== undefined) updates.quantity = quantity
+            if (default_price !== undefined) updates.default_price = default_price
+            if (restocked_qty !== undefined && restocked_qty > 0) updates.last_restocked_qty = restocked_qty
 
-          const { error } = await supabase
-            .from('inventory_items')
-            .update(updates)
-            .eq('id', id)
+            const { error } = await supabase
+              .from('inventory_items')
+              .update(updates)
+              .eq('id', id)
 
-          if (error && (error.message?.includes('column') || error.code === 'PGRST204')) {
-            delete updates.last_restocked_qty
-            await supabase.from('inventory_items').update(updates).eq('id', id)
+            if (error && (error.message?.includes('column') || error.code === 'PGRST204')) {
+              delete updates.last_restocked_qty
+              await supabase.from('inventory_items').update(updates).eq('id', id)
+            }
           }
         } catch (e) {
           console.warn('Supabase inventory update failed, updating local state', e)
@@ -226,19 +247,21 @@ export function useRecordInventorySales() {
           await supabase.from('inventory_sales').insert(rows)
 
           // Deduct quantities from inventory items
-          const { data: invItems } = await supabase
+            const { data: invItems } = await supabase
             .from('inventory_items')
             .select('*')
+            .eq('user_id', user.id)
 
           if (invItems) {
             for (const sale of sales) {
               const matched = invItems.find((i: InventoryItem) => i.name.toLowerCase() === sale.item_name.toLowerCase())
-              if (matched) {
+                if (matched) {
                 const newQty = Math.max(0, matched.quantity - sale.qty_sold)
                 await supabase
                   .from('inventory_items')
                   .update({ quantity: newQty, last_edited: new Date().toISOString() })
                   .eq('id', matched.id)
+                  .eq('user_id', user.id)
               }
             }
           }
@@ -276,7 +299,47 @@ export function useRecordInventorySales() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
       queryClient.invalidateQueries({ queryKey: ['inventory-sales'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
     }
+  })
+}
+
+export function useInventoryAudit() {
+  const { user } = useAuth()
+
+  return useQuery({
+    queryKey: ['inventory-audit', user?.id],
+    queryFn: async () => {
+      if (!user) throw new Error('Not authenticated')
+      const [{ data: items }, { data: sales }] = await Promise.all([
+        supabase.from('inventory_items').select('*').eq('user_id', user.id),
+        supabase.from('inventory_sales').select('item_name, qty_sold, amount').eq('user_id', user.id),
+      ])
+
+      const salesList = (sales || []) as Array<{ item_name: string; qty_sold: number; amount: number }>
+      const soldMap: Record<string, { qty: number; revenue: number }> = {}
+      salesList.forEach((s) => {
+        const key = (s.item_name || '').trim().toLowerCase()
+        if (!soldMap[key]) soldMap[key] = { qty: 0, revenue: 0 }
+        soldMap[key].qty += Number(s.qty_sold || 0)
+        soldMap[key].revenue += Number(s.amount || 0)
+      })
+
+      const itemsList = (items || []) as Array<{ id: string; name: string; quantity: number }>
+      return itemsList.map((it) => {
+        const key = (it.name || '').trim().toLowerCase()
+        const sold = soldMap[key] || { qty: 0, revenue: 0 }
+        return {
+          id: it.id,
+          name: it.name,
+          dbQuantity: Number(it.quantity || 0),
+          totalSold: sold.qty,
+          revenue: sold.revenue,
+          computedQuantity: Math.max(0, Number(it.quantity || 0) - sold.qty),
+        }
+      })
+    },
+    enabled: true,
   })
 }
 
@@ -372,21 +435,23 @@ export function useSyncBookingInventorySales() {
             .eq('booking_id', bookingId)
 
           if (existingSales && existingSales.length > 0) {
-            const { data: invItems } = await supabase
-              .from('inventory_items')
-              .select('*')
+              const { data: invItems } = await supabase
+                .from('inventory_items')
+                .select('*')
+                .eq('user_id', user.id)
 
             if (invItems) {
               for (const oldSale of existingSales) {
                 const matched = invItems.find(
                   (i: InventoryItem) => i.name.toLowerCase() === oldSale.item_name.toLowerCase()
                 )
-                if (matched) {
+                  if (matched) {
                   const restoredQty = matched.quantity + Number(oldSale.qty_sold || 0)
                   await supabase
                     .from('inventory_items')
                     .update({ quantity: restoredQty, last_edited: new Date().toISOString() })
                     .eq('id', matched.id)
+                    .eq('user_id', user.id)
                   matched.quantity = restoredQty
                 }
               }
@@ -415,6 +480,7 @@ export function useSyncBookingInventorySales() {
             const { data: currentItems } = await supabase
               .from('inventory_items')
               .select('*')
+              .eq('user_id', user.id)
 
             if (currentItems) {
               for (const addOn of activeAddOns) {
@@ -427,6 +493,7 @@ export function useSyncBookingInventorySales() {
                     .from('inventory_items')
                     .update({ quantity: newQty, last_edited: new Date().toISOString() })
                     .eq('id', matched.id)
+                    .eq('user_id', user.id)
                 }
               }
             }
@@ -496,6 +563,7 @@ export function useRemoveBookingInventorySales() {
             .from('inventory_sales')
             .select('*')
             .eq('booking_id', bookingId)
+            .eq('user_id', user.id)
 
           if (existingSales && existingSales.length > 0) {
             const { data: invItems } = await supabase
@@ -521,6 +589,7 @@ export function useRemoveBookingInventorySales() {
               .from('inventory_sales')
               .delete()
               .eq('booking_id', bookingId)
+              .eq('user_id', user.id)
           }
         } catch (e) {
           console.warn('Supabase booking sales remove failed', e)

@@ -105,18 +105,22 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-tap-highlight-color: transparent;
+    /* Prefer stable vh fallback for a more consistent mobile behavior */
+    min-height: 100vh;
     min-height: 100dvh;
     min-height: -webkit-fill-available;
     width: 100%;
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: contain;
+    /* allow natural overscroll chaining on mobile so the page scroll isn't locked */
+    overscroll-behavior-y: auto;
     touch-action: pan-y;
     background:
       radial-gradient(circle at top, rgba(16, 185, 129, 0.08), transparent 32%),
       linear-gradient(180deg, rgba(2, 6, 23, 0.98) 0%, rgba(2, 6, 23, 1) 100%);
-    background-attachment: fixed;
+    /* `background-attachment: fixed` can break scrolling on some mobile browsers */
+    background-attachment: scroll;
   }
 
   #root {
@@ -127,13 +131,26 @@
   }
 
   table, th, td {
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    /* Avoid aggressive per-character breaks which can cause single-letter vertical layout.
+       Use sensible defaults and allow hyphenation where supported. */
+    overflow-wrap: break-word;
+    word-break: normal;
+    hyphens: auto;
   }
 
   button, a, input, select, textarea, [role="button"] {
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  /* remove default number input spinners to avoid accidental increments */
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type=number] {
+    -moz-appearance: textfield;
   }
 
   @media (max-width: 767px) {
@@ -203,7 +220,8 @@
 
   .touch-smooth {
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
+    /* allow overscroll chaining so native scrolling isn't trapped */
+    overscroll-behavior: auto;
   }
 
   .gpu-fast {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import { useAuth } from '@/hooks/use-auth'
 import { useTheme } from '@/stores/theme-store'
 import { useToast } from '@/hooks/use-toast'
-import { useResetAllData } from '@/services/inventory-service'
+import { useResetAllData, exportFullBackupJSON, restoreFullBackupJSON, checkAndRunWeeklyAutoBackup } from '@/services/inventory-service'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
-import { User, Palette, Shield, Save, RotateCcw, AlertTriangle, CheckCircle, Smartphone, Download, Info } from 'lucide-react'
+import { User, Palette, Shield, Save, RotateCcw, AlertTriangle, CheckCircle, Smartphone, Download, Info, Loader2, Upload, Calendar, RefreshCw } from 'lucide-react'
 import { isRunningAsStandalone } from '@/components/common/pwa-install-prompt'
 
 const profileSchema = z.object({
@@ -35,15 +35,47 @@ export function SettingsPage() {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false)
   const [confirmInput, setConfirmInput] = useState('')
   const [isInstalled, setIsInstalled] = useState(false)
+  const [backupLoading, setBackupLoading] = useState<'daily' | 'weekly' | 'instant' | 'restore' | null>(null)
+  
+  // Weekly Auto-Backup State
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('turf_auto_backup_enabled') !== 'false'
+  })
+  const [lastBackupDate, setLastBackupDate] = useState<string | null>(() => {
+    return localStorage.getItem('turf_last_weekly_backup_date') || localStorage.getItem('turf_last_backup_date')
+  })
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setIsInstalled(isRunningAsStandalone())
     const handleInstalled = () => setIsInstalled(true)
     window.addEventListener('appinstalled', handleInstalled)
+
+    // Check weekly auto-backup status on page load
+    const autoRan = checkAndRunWeeklyAutoBackup()
+    if (autoRan) {
+      const nowIso = new Date().toISOString()
+      setLastBackupDate(nowIso)
+      toast({
+        title: 'Weekly Auto-Backup Triggered!',
+        description: '7 days elapsed. Your weekly backup file has been generated & downloaded.',
+      })
+    }
+
     return () => window.removeEventListener('appinstalled', handleInstalled)
-  }, [])
+  }, [toast])
 
-
+  const handleToggleAutoBackup = (enabled: boolean) => {
+    setAutoBackupEnabled(enabled)
+    localStorage.setItem('turf_auto_backup_enabled', enabled ? 'true' : 'false')
+    toast({
+      title: enabled ? 'Weekly Auto-Backup Enabled' : 'Weekly Auto-Backup Disabled',
+      description: enabled
+        ? 'The app will automatically generate and download a backup JSON file every 7 days.'
+        : 'Automated weekly backups turned off.',
+    })
+  }
 
   const form = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
@@ -78,6 +110,90 @@ export function SettingsPage() {
       setConfirmInput('')
     } catch (e) {
       toast({ variant: 'destructive', title: 'Reset Failed', description: 'Failed to clear data. Please try again.' })
+    }
+  }
+
+  const handleInstantJSONBackup = async () => {
+    setBackupLoading('instant')
+    try {
+      await exportFullBackupJSON()
+      const nowIso = new Date().toISOString()
+      setLastBackupDate(nowIso)
+      toast({
+        title: 'Instant Backup Downloaded!',
+        description: 'Full system backup exported as a JSON file to your downloads.',
+      })
+    } catch (e) {
+      toast({
+        variant: 'destructive',
+        title: 'Backup Export Failed',
+        description: e instanceof Error ? e.message : 'Unable to generate JSON backup.',
+      })
+    } finally {
+      setBackupLoading(null)
+    }
+  }
+
+  const handleFileRestoreUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setBackupLoading('restore')
+    try {
+      const text = await file.text()
+      await restoreFullBackupJSON(text)
+      toast({
+        title: 'Backup Restored Successfully!',
+        description: 'System data and local preferences have been updated from the backup file.',
+      })
+      setTimeout(() => window.location.reload(), 1200)
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Restore Failed',
+        description: 'Invalid backup JSON file or corrupt format.',
+      })
+    } finally {
+      setBackupLoading(null)
+      if (e.target) e.target.value = ''
+    }
+  }
+
+  const handleBackupRun = async (schedule: 'daily' | 'weekly') => {
+    setBackupLoading(schedule)
+    try {
+      const response = await fetch(`http://localhost:3001/api/backup?schedule=${schedule}`).catch(() => null)
+      
+      if (response && response.ok) {
+        const result = await response.json().catch(() => ({}))
+        const nowIso = new Date().toISOString()
+        setLastBackupDate(nowIso)
+        localStorage.setItem('turf_last_backup_date', nowIso)
+        toast({
+          title: `${schedule === 'daily' ? 'Daily' : 'Weekly'} server backup completed!`,
+          description: result?.message || 'Backup successfully saved to server storage.',
+        })
+      } else {
+        // Server offline or not running — fallback smoothly to browser JSON download
+        await exportFullBackupJSON()
+        const nowIso = new Date().toISOString()
+        setLastBackupDate(nowIso)
+        toast({
+          title: `${schedule === 'daily' ? 'Daily' : 'Weekly'} backup completed!`,
+          description: 'Server port 3001 unreachable. Exported full JSON backup directly to downloads.',
+        })
+      }
+    } catch (error) {
+      // Direct browser fallback
+      await exportFullBackupJSON()
+      const nowIso = new Date().toISOString()
+      setLastBackupDate(nowIso)
+      toast({
+        title: 'Backup generated successfully!',
+        description: 'Exported complete system JSON backup file to your browser.',
+      })
+    } finally {
+      setBackupLoading(null)
     }
   }
 
@@ -121,7 +237,7 @@ export function SettingsPage() {
               className="px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg whitespace-nowrap flex items-center justify-center gap-1.5 transition-all shrink-0"
             >
               <Shield className="h-4 w-4 shrink-0" />
-              <span>Security</span>
+              <span>Security & Backup</span>
             </TabsTrigger>
 
             <TabsTrigger
@@ -239,8 +355,6 @@ export function SettingsPage() {
           </Card>
         </TabsContent>
 
-
-
         <TabsContent value="appearance">
           <Card>
             <CardHeader className="p-4 sm:p-6">
@@ -301,10 +415,130 @@ export function SettingsPage() {
         <TabsContent value="security">
           <Card>
             <CardHeader className="p-4 sm:p-6">
-              <CardTitle className="text-base sm:text-lg">Security</CardTitle>
-              <CardDescription className="text-xs sm:text-sm">Manage your account security</CardDescription>
+              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                <Shield className="h-5 w-5 text-emerald-400" /> Security, Backups & Auto-Backup
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm">Manage system backups, weekly auto-backup schedules, and recovery.</CardDescription>
             </CardHeader>
             <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-4">
+              
+              {/* WEEKLY AUTO-BACKUP TOGGLE */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl bg-emerald-950/20 border border-emerald-800/40">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-emerald-400" />
+                    <p className="font-bold text-sm text-white">Automatic Weekly Backup</p>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Automatically exports and downloads a full JSON backup every 7 days on app load.
+                  </p>
+                  {lastBackupDate && (
+                    <p className="text-[11px] text-emerald-400 font-medium pt-0.5">
+                      Last Backup: {new Date(lastBackupDate).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-xs text-slate-300 font-semibold">{autoBackupEnabled ? 'ACTIVE (7 Days)' : 'DISABLED'}</span>
+                  <Switch
+                    checked={autoBackupEnabled}
+                    onCheckedChange={handleToggleAutoBackup}
+                    className="data-[state=checked]:bg-emerald-600"
+                  />
+                </div>
+              </div>
+
+              {/* INSTANT DOWNLOAD & RESTORE BACKUP */}
+              <div className="border border-border rounded-xl bg-muted/30 p-4 space-y-4">
+                <div className="space-y-0.5">
+                  <p className="font-bold text-sm text-white">Direct JSON Backup Export & Restore</p>
+                  <p className="text-xs text-muted-foreground">Download a complete system JSON backup file directly from browser or restore from an existing file.</p>
+                </div>
+
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileRestoreUpload}
+                  accept=".json"
+                  className="hidden"
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Button
+                    onClick={handleInstantJSONBackup}
+                    disabled={backupLoading !== null}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all"
+                  >
+                    {backupLoading === 'instant' ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Exporting JSON...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <Download className="w-4 h-4" /> Download JSON Backup
+                      </span>
+                    )}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={backupLoading !== null}
+                    className="w-full border-slate-700 text-slate-200 hover:bg-slate-800 font-medium transition-all"
+                  >
+                    {backupLoading === 'restore' ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Restoring...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <Upload className="w-4 h-4 text-emerald-400" /> Restore Backup File
+                      </span>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* SERVER BACKUP RUNNERS */}
+              <div className="border border-border rounded-xl bg-muted/30 p-4 space-y-4">
+                <div className="space-y-0.5">
+                  <p className="font-semibold text-sm">Server-Side Backup Jobs</p>
+                  <p className="text-xs text-muted-foreground">Trigger manual daily or weekly server backup jobs (with automatic browser fallback).</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Button
+                    onClick={() => handleBackupRun('daily')}
+                    disabled={backupLoading !== null}
+                    variant="secondary"
+                    className="w-full transition-all text-xs font-semibold"
+                  >
+                    {backupLoading === 'daily' ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Running Daily...
+                      </span>
+                    ) : (
+                      'Run Daily Backup Job'
+                    )}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => handleBackupRun('weekly')}
+                    disabled={backupLoading !== null}
+                    className="w-full transition-all text-xs font-semibold"
+                  >
+                    {backupLoading === 'weekly' ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Running Weekly...
+                      </span>
+                    ) : (
+                      'Run Weekly Backup Job'
+                    )}
+                  </Button>
+                </div>
+              </div>
+
               <div className="flex flex-col xs:flex-row items-start xs:items-center justify-between gap-3 p-3.5 sm:p-4 rounded-xl bg-muted/50">
                 <div className="space-y-0.5">
                   <p className="font-medium text-xs sm:text-sm">Change Password</p>
@@ -312,16 +546,6 @@ export function SettingsPage() {
                 </div>
                 <Button variant="outline" size="sm" className="w-full xs:w-auto shrink-0">
                   Change
-                </Button>
-              </div>
-
-              <div className="flex flex-col xs:flex-row items-start xs:items-center justify-between gap-3 p-3.5 sm:p-4 rounded-xl bg-muted/50">
-                <div className="space-y-0.5">
-                  <p className="font-medium text-xs sm:text-sm">Two-Factor Authentication</p>
-                  <p className="text-xs text-muted-foreground">Add an extra layer of security</p>
-                </div>
-                <Button variant="outline" size="sm" className="w-full xs:w-auto shrink-0">
-                  Enable
                 </Button>
               </div>
 

@@ -680,3 +680,122 @@ export function useResetAllData() {
   })
 }
 
+export async function exportFullBackupJSON(): Promise<void> {
+  const tables = [
+    'bookings',
+    'customers',
+    'inventory_items',
+    'inventory_sales',
+    'expenses',
+    'labour',
+    'labour_payments',
+    'liabilities',
+    'liability_payments',
+    'other_income',
+    'marketing_campaigns',
+  ]
+
+  const backupData: Record<string, any> = {
+    meta: {
+      app: 'Turf POS',
+      version: '1.0.0',
+      exported_at: new Date().toISOString(),
+    },
+    tables: {},
+    localStorage: {},
+  }
+
+  try {
+    for (const table of tables) {
+      const { data, error } = await supabase.from(table).select('*')
+      if (!error && data) {
+        backupData.tables[table] = data
+      }
+    }
+  } catch (e) {
+    console.warn('Backup export from Supabase failed/skipped', e)
+  }
+
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith('turf_')) {
+        backupData.localStorage[key] = localStorage.getItem(key)
+      }
+    }
+  } catch (e) {
+    console.warn('Backup export from localStorage failed/skipped', e)
+  }
+
+  const jsonString = JSON.stringify(backupData, null, 2)
+  const blob = new Blob([jsonString], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const dateStr = new Date().toISOString().split('T')[0]
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `turf_pos_backup_${dateStr}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+
+  localStorage.setItem('turf_last_backup_date', new Date().toISOString())
+}
+
+export async function restoreFullBackupJSON(fileData: string): Promise<boolean> {
+  try {
+    const parsed = JSON.parse(fileData)
+    if (!parsed || !parsed.meta) throw new Error('Invalid backup file format')
+
+    if (parsed.localStorage) {
+      Object.entries(parsed.localStorage).forEach(([k, v]) => {
+        if (typeof v === 'string') {
+          localStorage.setItem(k, v)
+        }
+      })
+    }
+
+    const { data: authData } = await supabase.auth.getUser()
+    const user = authData?.user
+    if (user && parsed.tables) {
+      for (const [tableName, rows] of Object.entries(parsed.tables)) {
+        if (Array.isArray(rows) && rows.length > 0) {
+          const rowsWithUser = rows.map((r: any) => ({ ...r, user_id: user.id }))
+          await supabase.from(tableName).upsert(rowsWithUser)
+        }
+      }
+    }
+
+    return true
+  } catch (e) {
+    console.error('Failed to restore backup', e)
+    throw e
+  }
+}
+
+export function checkAndRunWeeklyAutoBackup(): boolean {
+  try {
+    const autoBackupEnabled = localStorage.getItem('turf_auto_backup_enabled') !== 'false'
+    if (!autoBackupEnabled) return false
+
+    const lastBackupStr = localStorage.getItem('turf_last_weekly_backup_date') || localStorage.getItem('turf_last_backup_date')
+    const now = Date.now()
+
+    if (lastBackupStr) {
+      const lastDate = new Date(lastBackupStr).getTime()
+      const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+      if (now - lastDate < SEVEN_DAYS_MS) {
+        return false
+      }
+    }
+
+    exportFullBackupJSON()
+    localStorage.setItem('turf_last_weekly_backup_date', new Date().toISOString())
+    return true
+  } catch (e) {
+    console.warn('Auto backup check failed', e)
+    return false
+  }
+}
+
+

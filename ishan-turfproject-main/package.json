@@ -7,7 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "backup": "node tools/backup_run.mjs",
+    "backup:daily": "node tools/backup_scheduler.mjs daily",
+    "backup:weekly": "node tools/backup_scheduler.mjs weekly",
+    "backup:server": "node tools/backup_server.mjs",
+    "backup:restore": "node tools/backup_restore.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
@@ -32,6 +37,7 @@
     "date-fns": "^4.4.0",
     "framer-motion": "^12.42.0",
     "lucide-react": "^1.21.0",
+    "node-cron": "^4.6.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-hook-form": "^7.80.0",

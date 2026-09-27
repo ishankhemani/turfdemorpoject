@@ -171,9 +171,10 @@ export function useDashboardStats(
         end = customEndDate || customStartDate || toDateKey(now)
       }
 
-      const [{ data: bookings, error: bookingsError }, { data: expenses, error: expensesError }, { data: labourPayments, error: labourError }, { data: liabilityPayments, error: liabilityError }, { data: otherIncome }, { data: invSales }] =
+      const [{ data: bookingRows, error: bookingsError }, { data: paymentDateRows }, { data: expenses, error: expensesError }, { data: labourPayments, error: labourError }, { data: liabilityPayments, error: liabilityError }, { data: otherIncome }, { data: invSales }] =
         await Promise.all([
           supabase.from('bookings').select('*').gte('booking_date', start).lte('booking_date', end),
+          supabase.from('bookings').select('*').gte('payment_received_date', start).lte('payment_received_date', end),
           supabase.from('expenses').select('amount').gte('date', start).lte('date', end),
           supabase.from('labour_payments').select('amount').gte('date', start).lte('date', end),
           supabase.from('liability_payments').select('amount').gte('date', start).lte('date', end),
@@ -186,7 +187,13 @@ export function useDashboardStats(
       if (labourError) throw labourError
       if (liabilityError) throw liabilityError
 
-      const bookingsList = (bookings || []) as Booking[]
+      const mergedBookings = new Map<string, Booking>()
+      const bookingsList = [...(bookingRows || []), ...(paymentDateRows || [])].filter(Boolean) as Booking[]
+      bookingsList.forEach((booking) => {
+        mergedBookings.set(booking.id, { ...(mergedBookings.get(booking.id) || {}), ...booking })
+      })
+
+      const normalizedBookings = Array.from(mergedBookings.values())
 
       let onlineRevenue = 0
       let offlineRevenue = 0
@@ -194,7 +201,11 @@ export function useDashboardStats(
       let bottleSalesQty = 0
       let bottleSalesRevenue = 0
 
-      bookingsList.forEach((b) => {
+      normalizedBookings.forEach((b) => {
+        const saleDate = (b.payment_received_date || b.booking_date || '').toString()
+        if (saleDate && saleDate < start) return
+        if (saleDate && saleDate > end) return
+
         const isOnlineBooking = Boolean(b.transaction_id || b.source === 'website' || b.payment_mode === 'online')
         const mode = b.payment_mode || (isOnlineBooking ? 'online' : 'offline')
         const totalAmount = Number(b.amount || 0)
@@ -202,7 +213,6 @@ export function useDashboardStats(
         const pendingAmount = Number(b.pending_amount ?? Math.max(0, totalAmount - paidAmount))
         const isFullyPaid = (b.payment_status === 'paid') || paidAmount >= totalAmount
 
-        // Count revenue based on actual paid amount (paid_amount)
         if (paidAmount > 0) {
           if (mode === 'split') {
             const [onAmt, offAmt] = distributeSplitAmounts(Number(b.online_amount || 0), Number(b.offline_amount || 0), paidAmount)
@@ -251,7 +261,10 @@ export function useDashboardStats(
       const cashOut = expensesTotal + labourTotal + liabilityTotal
 
       const today = toDateKey(new Date())
-      const todayBookings = bookingsList.filter((booking) => booking.booking_date === today)
+      const todayBookings = normalizedBookings.filter((booking) => {
+        const receiptDate = booking.payment_received_date || booking.booking_date
+        return receiptDate === today || booking.booking_date === today
+      })
       const currentTimeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
       const sortedTodayBookings = [...todayBookings].sort((a, b) => a.booking_time.localeCompare(b.booking_time))
       const currentBooking = [...sortedTodayBookings].reverse().find((booking) => booking.booking_time <= currentTimeStr) || null
@@ -259,7 +272,7 @@ export function useDashboardStats(
       const uniqueOccupiedSlots = new Set(todayBookings.map((booking) => `${booking.area}-${booking.booking_time}`)).size
 
       return {
-        totalBookings: bookingsList.length,
+        totalBookings: normalizedBookings.length,
         cashIn,
         cashOut,
         profit: cashIn - cashOut,
@@ -336,16 +349,31 @@ export function useDailyData(daysCount: number = 10, startDateOverride?: string,
 
       const results = await Promise.all(
         dates.map(async (dateKey) => {
-          const [{ data: bookings }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }] = await Promise.all([
-            supabase.from('bookings').select('amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source').eq('booking_date', dateKey),
+          const [{ data: bookingsByDate }, { data: bookingsByReceiptDate }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }] = await Promise.all([
+            supabase.from('bookings').select('id, customer_name, mobile_number, area, booking_time, start_time, end_time, amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source, payment_received_date, booking_date, add_ons, user_id, created_at, updated_at').eq('booking_date', dateKey),
+            supabase.from('bookings').select('id, customer_name, mobile_number, area, booking_time, start_time, end_time, amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source, payment_received_date, booking_date, add_ons, user_id, created_at, updated_at').eq('payment_received_date', dateKey),
             supabase.from('expenses').select('amount').eq('date', dateKey),
             supabase.from('labour_payments').select('amount').eq('date', dateKey),
             supabase.from('liability_payments').select('amount').eq('date', dateKey),
           ])
 
-          const bookingsList = (bookings || []) as Booking[]
+          const mergedMap = new Map<string, Booking>()
+          ;(bookingsByDate || []).forEach((booking: any) => {
+            const bookingId = booking?.id as string | undefined
+            if (!bookingId) return
+            mergedMap.set(bookingId, { ...(mergedMap.get(bookingId) || {}), ...booking })
+          })
+          ;(bookingsByReceiptDate || []).forEach((booking: any) => {
+            const bookingId = booking?.id as string | undefined
+            if (!bookingId) return
+            mergedMap.set(bookingId, { ...(mergedMap.get(bookingId) || {}), ...booking })
+          })
+
+          const bookingsList = Array.from(mergedMap.values()) as Booking[]
           let revenue = 0
           bookingsList.forEach((b) => {
+            const receiptDate = (b.payment_received_date || b.booking_date || '').toString()
+            if (receiptDate !== dateKey) return
             const total = Number(b.amount || 0)
             const paidAmt = Number((b as any).paid_amount ?? 0)
             if (paidAmt <= 0) return
@@ -390,17 +418,32 @@ export function useMonthlyData(year: number = new Date().getFullYear()) {
           const start = toDateKey(new Date(year, month, 1))
           const end = toDateKey(new Date(year, month + 1, 0))
 
-          const [{ data: bookings }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }, { data: otherIncome }] = await Promise.all([
-            supabase.from('bookings').select('amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source').gte('booking_date', start).lte('booking_date', end),
+          const [{ data: bookingsByDate }, { data: bookingsByReceiptDate }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }, { data: otherIncome }] = await Promise.all([
+            supabase.from('bookings').select('id, customer_name, mobile_number, area, booking_time, start_time, end_time, amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source, payment_received_date, booking_date, add_ons, user_id, created_at, updated_at').gte('booking_date', start).lte('booking_date', end),
+            supabase.from('bookings').select('id, customer_name, mobile_number, area, booking_time, start_time, end_time, amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source, payment_received_date, booking_date, add_ons, user_id, created_at, updated_at').gte('payment_received_date', start).lte('payment_received_date', end),
             supabase.from('expenses').select('amount').gte('date', start).lte('date', end),
             supabase.from('labour_payments').select('amount').gte('date', start).lte('date', end),
             supabase.from('liability_payments').select('amount').gte('date', start).lte('date', end),
             supabase.from('other_income').select('amount').gte('date', start).lte('date', end),
           ])
 
-          const bookingsList = (bookings || []) as Booking[]
+          const mergedMap = new Map<string, Booking>()
+          ;(bookingsByDate || []).forEach((booking: any) => {
+            const bookingId = booking?.id as string | undefined
+            if (!bookingId) return
+            mergedMap.set(bookingId, { ...(mergedMap.get(bookingId) || {}), ...booking })
+          })
+          ;(bookingsByReceiptDate || []).forEach((booking: any) => {
+            const bookingId = booking?.id as string | undefined
+            if (!bookingId) return
+            mergedMap.set(bookingId, { ...(mergedMap.get(bookingId) || {}), ...booking })
+          })
+
+          const bookingsList = Array.from(mergedMap.values()) as Booking[]
           let bookingRev = 0
           bookingsList.forEach((b) => {
+            const receiptDate = (b.payment_received_date || b.booking_date || '').toString()
+            if (!receiptDate || receiptDate < start || receiptDate > end) return
             const total = Number(b.amount || 0)
             const paidAmt = Number((b as any).paid_amount ?? 0)
             if (paidAmt <= 0) return

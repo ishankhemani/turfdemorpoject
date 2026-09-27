@@ -36,6 +36,7 @@ export interface Booking extends BaseEntity {
   pending_amount?: number | null
   payment_status: 'paid' | 'pending'
   payment_mode?: 'online' | 'offline' | 'split' | string | null
+  payment_received_date?: string | null
   online_amount?: number | null
   offline_amount?: number | null
   add_ons?: AddOnItem[] | null

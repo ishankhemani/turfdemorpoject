@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
-import { Edit2, Package, ShoppingBag, Search, RefreshCw, Layers, Calendar, Filter, Clock, TrendingUp } from 'lucide-react'
+import { Edit2, Package, ShoppingBag, Search, RefreshCw, Layers, Calendar, Filter, Clock, TrendingUp, Plus, Minus, ShoppingCart, DollarSign, AlertCircle } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { useInventoryItems, useUpdateInventoryStock, useAllInventorySales, useInventoryAudit } from '@/services/inventory-service'
+import { useInventoryItems, useUpdateInventoryStock, useAllInventorySales, useInventoryAudit, useRecordInventorySales } from '@/services/inventory-service'
 import type { InventoryItem, InventorySale } from '@/types/database'
 
 function formatDateNice(isoString?: string | null) {
@@ -50,8 +50,16 @@ export function InventoryPage() {
   const todayStr = new Date().toISOString().split('T')[0]
   const { data: inventoryItems = [], isLoading, refetch } = useInventoryItems()
   const updateStock = useUpdateInventoryStock()
+  const recordSales = useRecordInventorySales()
   const { data: audit = [], refetch: refetchAudit } = useInventoryAudit()
   const [isAuditOpen, setIsAuditOpen] = useState(false)
+
+  // Direct Sale Modal state
+  const [isSaleDialogOpen, setIsSaleDialogOpen] = useState(false)
+  const [saleItem, setSaleItem] = useState<InventoryItem | null>(null)
+  const [saleQty, setSaleQty] = useState<number>(1)
+  const [salePrice, setSalePrice] = useState<number>(0)
+  const [saleError, setSaleError] = useState<string | null>(null)
 
   // Sales Date Filter State
   const [dateMode, setDateMode] = useState<'today' | 'custom' | 'all'>('today')
@@ -82,10 +90,62 @@ export function InventoryPage() {
     return matchesSearch && matchesCategory
   })
 
+  // Stock KPI Calculations
+  const totalStockValuation = inventoryItems.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.default_price || 0)), 0)
+  const totalStockUnits = inventoryItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+  const lowStockCount = inventoryItems.filter((item) => item.quantity > 0 && item.quantity <= 5).length
+  const outOfStockCount = inventoryItems.filter((item) => item.quantity <= 0).length
+
   const handleOpenEdit = (item: InventoryItem) => {
     setEditingItem(item)
     setAddQty(0)
     setNewPrice(item.default_price)
+  }
+
+  const handleOpenDirectSale = (item?: InventoryItem) => {
+    const target = item || (inventoryItems.length > 0 ? inventoryItems[0] : null)
+    if (!target) return
+    setSaleItem(target)
+    setSaleQty(1)
+    setSalePrice(target.default_price)
+    setSaleError(null)
+    setIsSaleDialogOpen(true)
+  }
+
+  const handleConfirmDirectSale = async () => {
+    if (!saleItem) return
+    if (saleQty <= 0) {
+      setSaleError('Please enter a valid quantity to sell (at least 1).')
+      return
+    }
+    if (saleQty > saleItem.quantity) {
+      setSaleError(`Cannot sell ${saleQty} units. Only ${saleItem.quantity} units available in stock.`)
+      return
+    }
+
+    const totalSaleAmount = saleQty * salePrice
+    setSaleError(null)
+
+    await recordSales.mutateAsync([
+      {
+        item_name: saleItem.name,
+        qty_sold: saleQty,
+        amount: totalSaleAmount,
+      },
+    ])
+
+    setIsSaleDialogOpen(false)
+    setSaleItem(null)
+  }
+
+  const handleQuickStockAdjust = async (item: InventoryItem, delta: number) => {
+    const newQty = Math.max(0, item.quantity + delta)
+    await updateStock.mutateAsync({
+      id: item.id,
+      quantity: newQty,
+      default_price: item.default_price,
+      restocked_qty: delta > 0 ? delta : undefined,
+    })
   }
 
   const handleSaveStock = async () => {
@@ -121,12 +181,71 @@ export function InventoryPage() {
             <Package className="w-7 h-7 sm:w-8 sm:h-8 text-emerald-400" /> Inventory & Stock Management
           </h1>
           <p className="text-slate-400 text-xs sm:text-sm mt-1">
-            Manage stock levels, restock dates, and track sales performance across date ranges.
+            Manage stock levels, sell counter items, track restocks, and monitor sales performance.
           </p>
         </div>
-        <Button onClick={() => refetch()} variant="outline" className="border-slate-700 hover:bg-slate-800 text-slate-300 w-full sm:w-auto">
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh Data
-        </Button>
+        <div className="flex gap-2 flex-wrap w-full sm:w-auto">
+          <Button
+            onClick={() => handleOpenDirectSale()}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold w-full sm:w-auto"
+          >
+            <ShoppingCart className="w-4 h-4 mr-2" /> Record Direct Sale
+          </Button>
+          <Button onClick={() => refetch()} variant="outline" className="border-slate-700 hover:bg-slate-800 text-slate-300 w-full sm:w-auto">
+            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* KPI METRIC CARDS */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <Card className="bg-slate-900/80 border-slate-800">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-400">
+              <DollarSign className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-400 uppercase font-semibold">Total Inventory Value</p>
+              <p className="text-lg font-bold text-emerald-400">₹{totalStockValuation.toLocaleString('en-IN')}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/80 border-slate-800">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-cyan-950/80 border border-cyan-800 text-cyan-400">
+              <Package className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-400 uppercase font-semibold">Total Stock Units</p>
+              <p className="text-lg font-bold text-white">{totalStockUnits} units</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/80 border-slate-800">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-950/80 border border-amber-800 text-amber-400">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-400 uppercase font-semibold">Low Stock Items</p>
+              <p className="text-lg font-bold text-amber-400">{lowStockCount} items</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/80 border-slate-800">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-red-950/80 border border-red-800 text-red-400">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-400 uppercase font-semibold">Out of Stock</p>
+              <p className="text-lg font-bold text-red-400">{outOfStockCount} items</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <Tabs defaultValue="stock" className="space-y-6">
@@ -218,12 +337,38 @@ export function InventoryPage() {
                           <td className="px-4 sm:px-6 py-4 font-medium text-white min-w-0">
                             <div className="flex items-start gap-2 min-w-0">
                               <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-2"></span>
-                              <span className="min-w-0 truncate block">{item.name}</span>
+                              <span className="min-w-0 truncate block font-semibold">{item.name}</span>
                             </div>
                           </td>
                           <td className="px-4 sm:px-6 py-4 text-slate-400">{item.category}</td>
                           <td className="px-4 sm:px-6 py-4 text-emerald-400 font-semibold">₹{item.default_price}</td>
-                          <td className="px-4 sm:px-6 py-4 font-bold text-white">{item.quantity} units</td>
+                          <td className="px-4 sm:px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                onClick={() => handleQuickStockAdjust(item, -1)}
+                                disabled={item.quantity <= 0 || updateStock.isPending}
+                                className="h-7 w-7 border-slate-700 bg-slate-950 text-slate-200 hover:bg-red-950 hover:text-red-400 shrink-0"
+                                title="Minus 1 Unit"
+                              >
+                                <Minus className="w-3 h-3" />
+                              </Button>
+
+                              <span className="font-bold text-white min-w-[3rem] text-center">{item.quantity} units</span>
+
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                onClick={() => handleQuickStockAdjust(item, 1)}
+                                disabled={updateStock.isPending}
+                                className="h-7 w-7 border-slate-700 bg-slate-950 text-slate-200 hover:bg-emerald-950 hover:text-emerald-400 shrink-0"
+                                title="Plus 1 Unit (Restock)"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </td>
                           <td className="px-4 sm:px-6 py-4 text-xs">
                             {renderRestockInfo(item.last_edited, item.last_restocked_qty)}
                           </td>
@@ -243,13 +388,23 @@ export function InventoryPage() {
                             )}
                           </td>
                           <td className="px-4 sm:px-6 py-4 text-right">
-                            <Button
-                              size="sm"
-                              onClick={() => handleOpenEdit(item)}
-                              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs"
-                            >
-                              <Edit2 className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Adjust Stock
-                            </Button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenDirectSale(item)}
+                                disabled={item.quantity <= 0}
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-2.5"
+                              >
+                                <ShoppingCart className="w-3.5 h-3.5 mr-1" /> Sell
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenEdit(item)}
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs px-2.5"
+                              >
+                                <Edit2 className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Adjust
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -264,44 +419,49 @@ export function InventoryPage() {
         {/* INVENTORY AUDIT DIALOG */}
         {isAuditOpen && (
           <Dialog open={isAuditOpen} onOpenChange={(v) => setIsAuditOpen(v)}>
-            <DialogContent>
+            <DialogContent className="bg-slate-900 text-white border-slate-800 max-w-lg">
               <DialogHeader>
-                <DialogTitle>Inventory Audit — DB vs Sales</DialogTitle>
+                <DialogTitle className="text-lg font-bold flex items-center gap-2">
+                  <RefreshCw className="w-5 h-5 text-emerald-400" /> Inventory Audit — DB vs Calculated Sales
+                </DialogTitle>
               </DialogHeader>
-              <div className="space-y-3">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="text-[11px] uppercase text-slate-400">
-                    <tr>
-                      <th>Item</th>
-                      <th>DB Qty</th>
-                      <th>Total Sold</th>
-                      <th>Computed Remaining</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {audit && audit.length > 0 ? (
-                      audit.map((row: any) => (
-                        <tr key={row.id} className="border-t border-slate-800/40">
-                          <td className="py-2">{row.name}</td>
-                          <td className="py-2">{row.dbQuantity}</td>
-                          <td className="py-2">{row.totalSold}</td>
-                          <td className="py-2">{row.computedQuantity}</td>
-                          <td className="py-2 text-right">
-                            {Number(row.dbQuantity) !== Number(row.computedQuantity) && (
-                              <Button size="sm" onClick={async () => {
-                                await updateStock.mutateAsync({ id: row.id, quantity: Number(row.computedQuantity) })
-                                await refetchAudit()
-                              }}>Fix</Button>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr><td colSpan={5} className="py-4 text-slate-500">No audit data available.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+              <div className="space-y-3 pt-2">
+                <p className="text-xs text-slate-400">Compares DB stock quantity against total sales log. Click Fix to resync computed remaining quantity.</p>
+                <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-800">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 uppercase text-[10px] text-slate-400 font-semibold sticky top-0">
+                      <tr>
+                        <th className="p-3">Item</th>
+                        <th className="p-3">DB Stock</th>
+                        <th className="p-3">Total Sold</th>
+                        <th className="p-3">Computed</th>
+                        <th className="p-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {audit && audit.length > 0 ? (
+                        audit.map((row: any) => (
+                          <tr key={row.id} className="hover:bg-slate-800/40">
+                            <td className="p-3 font-semibold text-white">{row.name}</td>
+                            <td className="p-3">{row.dbQuantity}</td>
+                            <td className="p-3 text-cyan-400">{row.totalSold}</td>
+                            <td className="p-3 font-bold text-emerald-400">{row.computedQuantity}</td>
+                            <td className="p-3 text-right">
+                              {Number(row.dbQuantity) !== Number(row.computedQuantity) && (
+                                <Button size="sm" className="bg-amber-600 hover:bg-amber-500 text-white text-xs h-7 px-2" onClick={async () => {
+                                  await updateStock.mutateAsync({ id: row.id, quantity: Number(row.computedQuantity) })
+                                  await refetchAudit()
+                                }}>Fix Sync</Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr><td colSpan={5} className="p-4 text-center text-slate-500">No audit data available.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </DialogContent>
           </Dialog>
@@ -429,14 +589,12 @@ export function InventoryPage() {
                       </tr>
                     ) : (
                       inventoryItems.map((item) => {
-                        // Calculate sold quantity since last restocked date
                         const restockDateOnly = item.last_edited ? item.last_edited.split('T')[0] : '1970-01-01'
                         const salesSinceRestock = allSales.filter(
                           (s) => s.item_name.trim().toLowerCase() === item.name.trim().toLowerCase() && s.date >= restockDateOnly
                         )
                         const soldSinceRestock = salesSinceRestock.reduce((sum, s) => sum + Number(s.qty_sold || 0), 0)
 
-                        // Calculate sold quantity in currently selected date range / mode
                         const salesInPeriod = rangeSales.filter(
                           (s) => s.item_name.trim().toLowerCase() === item.name.trim().toLowerCase()
                         )
@@ -485,7 +643,7 @@ export function InventoryPage() {
                 <CardTitle className="text-lg text-white flex items-center gap-2">
                   <ShoppingBag className="w-5 h-5 text-emerald-400" /> Detailed Transaction Sales Log
                 </CardTitle>
-                <p className="text-xs text-slate-400 mt-0.5">List of all add-on sales recorded in the selected period.</p>
+                <p className="text-xs text-slate-400 mt-0.5">List of all counter and booking sales recorded in the selected period.</p>
               </div>
 
               <div className="relative w-full sm:w-64">
@@ -514,14 +672,14 @@ export function InventoryPage() {
                     {filteredSalesLog.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
-                          No add-on sales records found for this period.
+                          No sales records found for this period.
                         </td>
                       </tr>
                     ) : (
                       filteredSalesLog.map((sale, idx) => (
                         <tr key={sale.id || idx} className="hover:bg-slate-800/40 transition-colors">
                           <td className="px-4 sm:px-6 py-4 font-medium text-white min-w-0">
-                            <span className="min-w-0 truncate block">{sale.item_name}</span>
+                            <span className="min-w-0 truncate block font-semibold">{sale.item_name}</span>
                           </td>
                           <td className="px-4 sm:px-6 py-4 text-slate-400">{sale.date}</td>
                           <td className="px-4 sm:px-6 py-4 text-white font-semibold">{sale.qty_sold} units</td>
@@ -547,6 +705,118 @@ export function InventoryPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* DIRECT SALE / POS COUNTER SALE DIALOG */}
+      <Dialog open={isSaleDialogOpen} onOpenChange={setIsSaleDialogOpen}>
+        <DialogContent className="bg-slate-900 text-white border-slate-800 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <ShoppingCart className="w-5 h-5 text-emerald-400" /> Record Direct Counter Sale
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {saleError && (
+              <div className="bg-red-950/80 border border-red-800/60 p-3 rounded-lg text-xs text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                <span>{saleError}</span>
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs text-slate-400 font-semibold block mb-1">Select Item to Sell</label>
+              <select
+                value={saleItem?.id || ''}
+                onChange={(e) => {
+                  const matched = inventoryItems.find((i) => i.id === e.target.value)
+                  if (matched) {
+                    setSaleItem(matched)
+                    setSalePrice(matched.default_price)
+                    setSaleQty(1)
+                  }
+                }}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
+              >
+                {inventoryItems.map((item) => (
+                  <option key={item.id} value={item.id} disabled={item.quantity <= 0}>
+                    {item.name} ({item.quantity} available — ₹{item.default_price})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {saleItem && (
+              <>
+                <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800 flex justify-between items-center text-xs">
+                  <span className="text-slate-400">Available Stock:</span>
+                  <span className={`font-bold ${saleItem.quantity <= 5 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {saleItem.quantity} units available
+                  </span>
+                </div>
+
+                <div>
+                  <label className="text-xs text-slate-400 font-semibold block mb-1">Quantity to Sell</label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setSaleQty((q) => Math.max(1, q - 1))}
+                      className="h-10 w-10 border-slate-700 bg-slate-950 text-white shrink-0"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </Button>
+                    <Input
+                      type="number"
+                      min="1"
+                      max={saleItem.quantity}
+                      value={saleQty}
+                      onChange={(e) => setSaleQty(Math.max(1, Number(e.target.value)))}
+                      className="bg-slate-950/60 border-slate-700 text-white text-center font-bold text-base"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setSaleQty((q) => Math.min(saleItem.quantity, q + 1))}
+                      className="h-10 w-10 border-slate-700 bg-slate-950 text-white shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-slate-400 font-semibold block mb-1">Selling Price per Unit (₹)</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={salePrice}
+                    onChange={(e) => setSalePrice(Number(e.target.value))}
+                    className="bg-slate-950/60 border-slate-700 text-white"
+                  />
+                </div>
+
+                <div className="bg-emerald-950/40 p-3 rounded-lg border border-emerald-800/40 flex justify-between items-center">
+                  <span className="text-xs font-semibold text-slate-300">Total Sale Amount:</span>
+                  <span className="text-xl font-bold text-emerald-400">₹{(saleQty * salePrice).toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
+                  <Button variant="outline" onClick={() => setIsSaleDialogOpen(false)} className="border-slate-700 text-slate-300">
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleConfirmDirectSale}
+                    disabled={recordSales.isPending || saleItem.quantity <= 0}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                  >
+                    {recordSales.isPending ? 'Saving...' : 'Confirm Sale & Deduct Stock'}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* EDIT / ADJUST STOCK DIALOG */}
       <Dialog open={!!editingItem} onOpenChange={(open) => !open && setEditingItem(null)}>
@@ -615,7 +885,7 @@ export function InventoryPage() {
                 <Button variant="outline" onClick={() => setEditingItem(null)} className="border-slate-700 text-slate-300">
                   Cancel
                 </Button>
-                <Button onClick={handleSaveStock} className="bg-emerald-600 hover:bg-emerald-500 text-white">
+                <Button onClick={handleSaveStock} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold">
                   Save Changes
                 </Button>
               </div>
@@ -626,3 +896,4 @@ export function InventoryPage() {
     </div>
   )
 }
+

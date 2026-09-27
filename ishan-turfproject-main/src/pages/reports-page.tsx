@@ -1,14 +1,13 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useMonthlyData, useDailyData, useBookings } from '@/services/dashboard-service'
 import { useExpenses, useLabour, useLiabilities } from '@/services/accounts-service'
 import { useCustomers } from '@/services/customers-service'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { PageLoadingState } from '@/components/common/loading'
-import { Download, Calendar, IndianRupee, Users, TrendingUp, Wallet, Clock } from 'lucide-react'
+import { Download, Calendar, IndianRupee, Users, TrendingUp, Wallet, Clock, FileSpreadsheet } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 function distributeSplitAmounts(onAmt: number, offAmt: number, paidAmount: number): [number, number] {
@@ -25,7 +24,7 @@ function distributeSplitAmounts(onAmt: number, offAmt: number, paidAmount: numbe
 }
 
 export function ReportsPage() {
-  const [reportType, setReportType] = useState<'daily' | 'monthly' | 'custom'>('daily')
+  const reportType = 'custom' as const
   const [customStartDate, setCustomStartDate] = useState<string>(new Date().toISOString().split('T')[0])
   const [customEndDate, setCustomEndDate] = useState<string>(new Date().toISOString().split('T')[0])
 
@@ -43,6 +42,28 @@ export function ReportsPage() {
 
   if (monthlyLoading || dailyLoading) {
     return <PageLoadingState />
+  }
+
+  const exportCSV = () => {
+    const headers = ['Date', 'Bookings Count', 'Revenue (INR)', 'Expenses (INR)', 'Daily Profit (INR)']
+    const rows = (dailyData || []).map((day) => [
+      day.date,
+      day.totalBookings,
+      day.revenue,
+      day.expenses,
+      day.profit,
+    ])
+
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `elite_arena_report_${customStartDate}_to_${customEndDate}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
   }
 
   // Active bookings filtered by current report view
@@ -89,15 +110,10 @@ export function ReportsPage() {
     }
   })
 
-  // Top summary stats based on current report view
-  const displayRevenue = reportType === 'monthly'
-    ? (monthlyData || []).reduce((sum, m) => sum + m.revenue, 0)
-    : (dailyData || []).reduce((sum, d) => sum + d.revenue, 0)
-
+  // Top summary stats — custom date range (dailyData is fetched with start/end overrides)
+  const displayRevenue = (dailyData || []).reduce((sum, d) => sum + d.revenue, 0)
   // Expenses already includes general expenses + labour payments + liability payments
-  const displayExpenses = reportType === 'monthly'
-    ? (monthlyData || []).reduce((sum, m) => sum + m.expenses, 0)
-    : (dailyData || []).reduce((sum, d) => sum + d.expenses, 0)
+  const displayExpenses = (dailyData || []).reduce((sum, d) => sum + d.expenses, 0)
 
   const displayProfit = displayRevenue - displayExpenses
 
@@ -233,11 +249,11 @@ export function ReportsPage() {
           <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-2">
             <Calendar className="w-8 h-8 text-emerald-400" /> Business Reports & Summaries
           </h1>
-          <p className="text-slate-400 text-sm mt-1">View daily breakdown, monthly performance, and custom date range reports.</p>
+          <p className="text-slate-400 text-sm mt-1">Select a date range to view revenue, expenses, and profit for that period.</p>
         </div>
         <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 w-full sm:w-auto">
-          {reportType === 'custom' && (
-            <div className="flex flex-wrap items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-800 text-xs w-full sm:w-auto">
+          {/* Date range pickers — always visible */}
+          <div className="flex flex-wrap items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-800 text-xs w-full sm:w-auto">
               <div className="flex items-center gap-1.5 flex-1">
                 <span className="text-slate-400">From:</span>
                 <Input
@@ -256,20 +272,16 @@ export function ReportsPage() {
                   className="h-8 bg-slate-950 border-slate-700 text-white text-xs w-full sm:w-36"
                 />
               </div>
-            </div>
-          )}
-          <Tabs value={reportType} onValueChange={(v) => setReportType(v as 'daily' | 'monthly' | 'custom')} className="w-full sm:w-auto">
-            <TabsList className="bg-slate-800/80 w-full justify-start overflow-x-auto">
-              <TabsTrigger value="daily" className="flex-1 sm:flex-initial data-[state=active]:bg-emerald-600">Daily Summary</TabsTrigger>
-              <TabsTrigger value="monthly" className="flex-1 sm:flex-initial data-[state=active]:bg-emerald-600">Monthly Summary</TabsTrigger>
-              <TabsTrigger value="custom" className="flex-1 sm:flex-initial data-[state=active]:bg-emerald-600">Custom Search</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <Button onClick={generateReport} className="bg-emerald-600 hover:bg-emerald-500 text-white w-full sm:w-auto">
+          </div>
+          <Button onClick={exportCSV} variant="outline" className="border-slate-700 text-slate-200 hover:bg-slate-800 w-full sm:w-auto">
+            <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-400" /> Export CSV
+          </Button>
+          <Button onClick={generateReport} className="bg-emerald-600 hover:bg-emerald-500 text-white w-full sm:w-auto font-bold">
             <Download className="mr-2 h-4 w-4" /> Download PDF
           </Button>
         </div>
       </div>
+
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Card className="bg-slate-900/80 border-slate-800">
@@ -372,12 +384,12 @@ export function ReportsPage() {
         </Card>
       </div>
 
-      {/* Daily Summary Table */}
+      {/* Date Range Summary Table */}
       <Card className="bg-slate-900/80 border-slate-800 shadow-xl overflow-hidden">
         <CardHeader className="border-b border-slate-800 pb-4 flex flex-row items-center justify-between">
           <CardTitle className="text-lg text-white flex items-center gap-2">
             <Calendar className="w-5 h-5 text-emerald-400" /> Daily Financial Summary
-            {reportType === 'custom' ? ` (${customStartDate} to ${customEndDate})` : ' (Last 10 Days)'}
+            <span className="text-slate-400 text-sm font-normal ml-1">({customStartDate} to {customEndDate})</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">

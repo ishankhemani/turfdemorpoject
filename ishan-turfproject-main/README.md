@@ -11,6 +11,37 @@ Currently, two official plugins are available:
 
 The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
+## Backup and restore
+
+This project includes a Supabase backup script that exports the app tables to a gzip-compressed JSON file and uploads it to the configured storage bucket.
+
+Environment variables required for the backup job:
+
+```bash
+export SUPABASE_URL="https://<project-ref>.supabase.co"
+export SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+export SUPABASE_BACKUP_BUCKET="backups"
+export SUPABASE_BACKUP_RETENTION_MONTHS="12"
+```
+
+Run a manual backup:
+
+```bash
+npm run backup
+```
+
+Restore the latest backup from storage:
+
+```bash
+npm run backup:restore latest
+```
+
+If you want to restore a specific local backup file, pass its path instead:
+
+```bash
+npm run backup:restore ./tools/backups/backup-2026-09-26T12-00-00-000Z.json.gz
+```
+
 ## Expanding the Oxlint configuration
 
 If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:

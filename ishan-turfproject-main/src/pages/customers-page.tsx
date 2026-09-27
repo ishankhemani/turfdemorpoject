@@ -48,8 +48,14 @@ export function CustomersPage() {
     amount: number
     paid_amount: number
     pending_amount: number
+    payment_mode?: 'online' | 'offline' | 'split' | string | null
+    online_amount?: number | null
+    offline_amount?: number | null
   } | null>(null)
   const [payAmountInput, setPayAmountInput] = useState<number>(0)
+  const [payMode, setPayMode] = useState<'offline' | 'online' | 'split'>('offline')
+  const [splitOnlineInput, setSplitOnlineInput] = useState<number>(0)
+  const [splitOfflineInput, setSplitOfflineInput] = useState<number>(0)
 
   const { data: customers = [], isLoading } = useCustomers()
   const { data: areaStats } = useAreaStats()
@@ -65,9 +71,30 @@ export function CustomersPage() {
     amount: number
     paid_amount: number
     pending_amount: number
+    payment_mode?: 'online' | 'offline' | 'split' | string | null
+    online_amount?: number | null
+    offline_amount?: number | null
   }) => {
-    setPayTarget(b)
-    setPayAmountInput(b.paid_amount > 0 ? b.paid_amount : b.amount)
+    const mode = b.payment_mode === 'online' || b.payment_mode === 'offline' || b.payment_mode === 'split' ? b.payment_mode : 'offline'
+    const remaining = Math.max(0, Number(b.pending_amount ?? Math.max(0, b.amount - Number(b.paid_amount || 0))))
+
+    setPayTarget({
+      ...b,
+      payment_mode: mode,
+      online_amount: b.online_amount ?? 0,
+      offline_amount: b.offline_amount ?? 0,
+    })
+    setPayMode(mode)
+    setPayAmountInput(remaining)
+    // Pre-fill split amounts
+    if (mode === 'split') {
+      const half = Math.floor(remaining / 2)
+      setSplitOnlineInput(half)
+      setSplitOfflineInput(remaining - half)
+    } else {
+      setSplitOnlineInput(0)
+      setSplitOfflineInput(0)
+    }
   }
 
   const handleSavePayTarget = async () => {
@@ -75,22 +102,58 @@ export function CustomersPage() {
     try {
       const target = payTarget
       setPayTarget(null)
-      const totalAmt = target.amount
-      const enteredPaid = Math.max(0, Math.min(totalAmt, Number(payAmountInput || 0)))
-      const pendingAmt = Math.max(0, totalAmt - enteredPaid)
-      const newStatus: 'paid' | 'pending' = pendingAmt <= 0 ? 'paid' : 'pending'
+
+      const totalAmt = Number(target.amount || 0)
+      const currentPaid = Number(target.paid_amount || 0)
+      const currentPending = Number(target.pending_amount ?? Math.max(0, totalAmt - currentPaid))
+      const receivedNow = Math.max(0, Math.min(currentPending, Number(payAmountInput || 0)))
+      const nextPaid = currentPaid + receivedNow
+      const nextPending = Math.max(0, totalAmt - nextPaid)
+      const newStatus: 'paid' | 'pending' = nextPending <= 0 ? 'paid' : 'pending'
+
+      const currentOnline = Number(target.online_amount || 0)
+      const currentOffline = Number(target.offline_amount || 0)
+      let nextOnline = currentOnline
+      let nextOffline = currentOffline
+
+      if (payMode === 'online') {
+        nextOnline += receivedNow
+      } else if (payMode === 'offline') {
+        nextOffline += receivedNow
+      } else {
+        // Use manually entered split amounts; clamp to receivedNow
+        const manualOnline = Math.max(0, Math.min(receivedNow, splitOnlineInput))
+        const manualOffline = Math.max(0, Math.min(receivedNow - manualOnline, splitOfflineInput))
+        nextOnline += manualOnline
+        nextOffline += manualOffline
+      }
+
+      let finalPaymentMode = payMode
+      if (nextOnline > 0 && nextOffline > 0) {
+        finalPaymentMode = 'split'
+      } else if (nextOnline > 0 && nextOffline === 0) {
+        finalPaymentMode = 'online'
+      } else if (nextOffline > 0 && nextOnline === 0) {
+        finalPaymentMode = 'offline'
+      }
+
+      const paymentReceivedDate = new Date().toISOString().slice(0, 10)
 
       await updateBooking.mutateAsync({
         id: target.id,
         payment_status: newStatus,
-        paid_amount: enteredPaid,
-        pending_amount: pendingAmt,
+        payment_mode: finalPaymentMode,
+        paid_amount: nextPaid,
+        pending_amount: nextPending,
+        online_amount: nextOnline,
+        offline_amount: nextOffline,
+        payment_received_date: paymentReceivedDate,
       })
 
       await syncInventorySales.mutateAsync({
         bookingId: target.id,
-        date: target.booking_date,
-        isPaid: newStatus === 'paid' || enteredPaid > 0,
+        date: paymentReceivedDate,
+        isPaid: newStatus === 'paid' || nextPaid > 0,
         addOns: [],
       })
     } catch (e) {
@@ -610,31 +673,116 @@ export function CustomersPage() {
 
               <div>
                 <Label className="text-slate-300 text-xs mb-1 block">
-                  New Total Amount Paid Received (₹)
+                  Amount Received Now (₹)
                 </Label>
                 <Input
                   type="number"
                   min="0"
-                  max={payTarget.amount}
+                  max={Math.max(0, payTarget.pending_amount || payTarget.amount)}
                   value={payAmountInput}
-                  onChange={(e) => setPayAmountInput(Number(e.target.value))}
+                  onChange={(e) => {
+                    const newVal = Math.max(0, Number(e.target.value))
+                    setPayAmountInput(newVal)
+                    if (payMode === 'split') {
+                      const half = Math.floor(newVal / 2)
+                      setSplitOnlineInput(half)
+                      setSplitOfflineInput(newVal - half)
+                    }
+                  }}
                   className="bg-slate-950/70 border-slate-700 text-white text-sm"
                 />
-                <div className="flex justify-between items-center text-xs mt-2 p-2.5 rounded bg-slate-950 border border-slate-800">
+                <div className="mt-3">
+                  <Label className="text-slate-300 text-xs mb-1.5 block">Payment Mode</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['offline', 'online', 'split'] as const).map((mode) => (
+                      <Button
+                        key={mode}
+                        type="button"
+                        size="sm"
+                        variant={payMode === mode ? 'default' : 'outline'}
+                        onClick={() => {
+                          setPayMode(mode)
+                          if (mode === 'split') {
+                            const half = Math.floor(payAmountInput / 2)
+                            setSplitOnlineInput(half)
+                            setSplitOfflineInput(payAmountInput - half)
+                          } else {
+                            setSplitOnlineInput(0)
+                            setSplitOfflineInput(0)
+                          }
+                        }}
+                        className={payMode === mode ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'border-slate-700 text-slate-300'}
+                      >
+                        {mode === 'offline' ? 'Cash' : mode === 'online' ? 'UPI' : 'Split'}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Split amount inputs — shown only in split mode */}
+                {payMode === 'split' && (
+                  <div className="mt-3 space-y-2 bg-slate-950/60 p-3 rounded-lg border border-slate-800">
+                    <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                      <span>Enter how much was paid via each method.</span>
+                      <span
+                        className={
+                          splitOnlineInput + splitOfflineInput === payAmountInput
+                            ? 'font-bold text-emerald-400'
+                            : 'font-bold text-amber-400'
+                        }
+                      >
+                        ₹{splitOnlineInput + splitOfflineInput} / ₹{payAmountInput}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-slate-300 text-xs mb-1 block">Online / UPI (₹)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max={payAmountInput}
+                          value={splitOnlineInput}
+                          onChange={(e) => {
+                            const val = Math.max(0, Math.min(payAmountInput, parseInt(e.target.value, 10) || 0))
+                            setSplitOnlineInput(val)
+                            setSplitOfflineInput(Math.max(0, payAmountInput - val))
+                          }}
+                          className="bg-slate-900 border-slate-700 text-white text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-slate-300 text-xs mb-1 block">Cash / Offline (₹)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max={payAmountInput}
+                          value={splitOfflineInput}
+                          onChange={(e) => {
+                            const val = Math.max(0, Math.min(payAmountInput, parseInt(e.target.value, 10) || 0))
+                            setSplitOfflineInput(val)
+                            setSplitOnlineInput(Math.max(0, payAmountInput - val))
+                          }}
+                          className="bg-slate-900 border-slate-700 text-white text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-xs mt-3 p-2.5 rounded bg-slate-950 border border-slate-800">
                   <span>
-                    New Pending Balance:{' '}
-                    <strong className={payTarget.amount - payAmountInput > 0 ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>
-                      ₹{Math.max(0, payTarget.amount - payAmountInput)}
+                    Remaining After This Receipt:{' '}
+                    <strong className={payTarget.pending_amount - payAmountInput > 0 ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>
+                      ₹{Math.max(0, payTarget.pending_amount - payAmountInput)}
                     </strong>
                   </span>
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={() => setPayAmountInput(payTarget.amount)}
+                    onClick={() => setPayAmountInput(Math.max(0, payTarget.pending_amount))}
                     className="text-[11px] h-7 border-emerald-700/60 text-emerald-400 hover:bg-emerald-950/40"
                   >
-                    Settle Full (₹{payTarget.amount})
+                    Full Pending (₹{payTarget.pending_amount})
                   </Button>
                 </div>
               </div>

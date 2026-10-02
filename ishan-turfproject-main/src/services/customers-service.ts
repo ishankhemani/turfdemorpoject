@@ -130,6 +130,9 @@ export interface PendingPaymentCustomer {
     amount: number
     paid_amount: number
     pending_amount: number
+    payment_mode?: string | null
+    online_amount?: number | null
+    offline_amount?: number | null
     area: string
     sport: string
   }>
@@ -145,7 +148,7 @@ export function usePendingPayments() {
 
       const { data, error } = await supabase
         .from('bookings')
-        .select('id, customer_name, mobile_number, area, booking_date, booking_time, amount, paid_amount, pending_amount, payment_status, sport')
+        .select('id, customer_name, mobile_number, area, booking_date, booking_time, amount, paid_amount, pending_amount, payment_status, sport, payment_mode, online_amount, offline_amount')
         .order('booking_date', { ascending: false })
 
       if (error) throw error
@@ -162,6 +165,9 @@ export function usePendingPayments() {
         pending_amount?: number | string | null
         payment_status: 'paid' | 'pending'
         sport: string
+        payment_mode?: string | null
+        online_amount?: number | string | null
+        offline_amount?: number | string | null
       }>
 
       // Filter bookings with active pending balance
@@ -207,6 +213,9 @@ export function usePendingPayments() {
           amount: totalAmt,
           paid_amount: paidAmt,
           pending_amount: pendingAmt,
+          payment_mode: b.payment_mode || 'offline',
+          online_amount: Number(b.online_amount || 0),
+          offline_amount: Number(b.offline_amount || 0),
           area: b.area,
           sport: b.sport,
         }

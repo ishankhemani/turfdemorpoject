@@ -59,6 +59,9 @@ export function InventoryPage() {
   const [saleItem, setSaleItem] = useState<InventoryItem | null>(null)
   const [saleQty, setSaleQty] = useState<number>(1)
   const [salePrice, setSalePrice] = useState<number>(0)
+  const [salePayMode, setSalePayMode] = useState<'offline' | 'online' | 'split'>('offline')
+  const [saleSplitOnline, setSaleSplitOnline] = useState<number>(0)
+  const [saleSplitOffline, setSaleSplitOffline] = useState<number>(0)
   const [saleError, setSaleError] = useState<string | null>(null)
 
   // Sales Date Filter State
@@ -108,6 +111,9 @@ export function InventoryPage() {
     setSaleItem(target)
     setSaleQty(1)
     setSalePrice(target.default_price)
+    setSalePayMode('offline')
+    setSaleSplitOnline(0)
+    setSaleSplitOffline(0)
     setSaleError(null)
     setIsSaleDialogOpen(true)
   }
@@ -124,6 +130,44 @@ export function InventoryPage() {
     }
 
     const totalSaleAmount = saleQty * salePrice
+    let effectiveOnline = 0
+    let effectiveOffline = 0
+
+    if (salePayMode === 'online') {
+      effectiveOnline = totalSaleAmount
+      effectiveOffline = 0
+    } else if (salePayMode === 'offline') {
+      effectiveOnline = 0
+      effectiveOffline = totalSaleAmount
+    } else {
+      const manualOnline = Math.max(0, Number(saleSplitOnline || 0))
+      const manualOffline = Math.max(0, Number(saleSplitOffline || 0))
+      const sumEntered = manualOnline + manualOffline
+
+      if (sumEntered > 0) {
+        if (sumEntered !== totalSaleAmount) {
+          const ratio = totalSaleAmount / sumEntered
+          effectiveOnline = Math.min(totalSaleAmount, Math.floor(manualOnline * ratio))
+          effectiveOffline = totalSaleAmount - effectiveOnline
+        } else {
+          effectiveOnline = manualOnline
+          effectiveOffline = manualOffline
+        }
+      } else {
+        effectiveOnline = Math.floor(totalSaleAmount / 2)
+        effectiveOffline = totalSaleAmount - effectiveOnline
+      }
+    }
+
+    let finalMode = salePayMode
+    if (effectiveOnline > 0 && effectiveOffline > 0) {
+      finalMode = 'split'
+    } else if (effectiveOnline > 0 && effectiveOffline === 0) {
+      finalMode = 'online'
+    } else {
+      finalMode = 'offline'
+    }
+
     setSaleError(null)
 
     await recordSales.mutateAsync([
@@ -131,6 +175,9 @@ export function InventoryPage() {
         item_name: saleItem.name,
         qty_sold: saleQty,
         amount: totalSaleAmount,
+        payment_mode: finalMode,
+        online_amount: effectiveOnline,
+        offline_amount: effectiveOffline,
       },
     ])
 
@@ -172,6 +219,20 @@ export function InventoryPage() {
 
   const totalPeriodRevenue = rangeSales.reduce((sum, sale) => sum + Number(sale.amount || 0), 0)
   const totalPeriodItemsSold = rangeSales.reduce((sum, sale) => sum + Number(sale.qty_sold || 0), 0)
+
+  const totalPeriodOnline = rangeSales.reduce((sum, sale) => {
+    const mode = sale.payment_mode || 'offline'
+    if (mode === 'split') return sum + Number(sale.online_amount || 0)
+    if (mode === 'online') return sum + Number(sale.amount || 0)
+    return sum
+  }, 0)
+
+  const totalPeriodOffline = rangeSales.reduce((sum, sale) => {
+    const mode = sale.payment_mode || 'offline'
+    if (mode === 'split') return sum + Number(sale.offline_amount || 0)
+    if (mode === 'online') return sum
+    return sum + Number(sale.amount || 0)
+  }, 0)
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
@@ -342,33 +403,7 @@ export function InventoryPage() {
                           </td>
                           <td className="px-4 sm:px-6 py-4 text-slate-400">{item.category}</td>
                           <td className="px-4 sm:px-6 py-4 text-emerald-400 font-semibold">₹{item.default_price}</td>
-                          <td className="px-4 sm:px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <Button
-                                size="icon"
-                                variant="outline"
-                                onClick={() => handleQuickStockAdjust(item, -1)}
-                                disabled={item.quantity <= 0 || updateStock.isPending}
-                                className="h-7 w-7 border-slate-700 bg-slate-950 text-slate-200 hover:bg-red-950 hover:text-red-400 shrink-0"
-                                title="Minus 1 Unit"
-                              >
-                                <Minus className="w-3 h-3" />
-                              </Button>
-
-                              <span className="font-bold text-white min-w-[3rem] text-center">{item.quantity} units</span>
-
-                              <Button
-                                size="icon"
-                                variant="outline"
-                                onClick={() => handleQuickStockAdjust(item, 1)}
-                                disabled={updateStock.isPending}
-                                className="h-7 w-7 border-slate-700 bg-slate-950 text-slate-200 hover:bg-emerald-950 hover:text-emerald-400 shrink-0"
-                                title="Plus 1 Unit (Restock)"
-                              >
-                                <Plus className="w-3 h-3" />
-                              </Button>
-                            </div>
-                          </td>
+                          <td className="px-4 sm:px-6 py-4 font-bold text-white">{item.quantity} units</td>
                           <td className="px-4 sm:px-6 py-4 text-xs">
                             {renderRestockInfo(item.last_edited, item.last_restocked_qty)}
                           </td>
@@ -533,7 +568,7 @@ export function InventoryPage() {
             )}
 
             {/* Quick Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
               <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800">
                 <p className="text-xs text-slate-400">Total Period Revenue</p>
                 <p className="text-lg font-bold text-emerald-400">₹{totalPeriodRevenue.toLocaleString('en-IN')}</p>
@@ -684,15 +719,22 @@ export function InventoryPage() {
                           <td className="px-4 sm:px-6 py-4 text-slate-400">{sale.date}</td>
                           <td className="px-4 sm:px-6 py-4 text-white font-semibold">{sale.qty_sold} units</td>
                           <td className="px-4 sm:px-6 py-4">
-                            {sale.booking_id ? (
-                              <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-cyan-950/80 text-cyan-300 border border-cyan-800/50">
-                                Booking Add-on
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-purple-950/80 text-purple-300 border border-purple-800/50">
-                                Direct Counter Sale
-                              </span>
-                            )}
+                            <div className="flex flex-col gap-1 items-start">
+                              {sale.booking_id ? (
+                                <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-cyan-950/80 text-cyan-300 border border-cyan-800/50">
+                                  Booking Add-on
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-purple-950/80 text-purple-300 border border-purple-800/50">
+                                  Direct Counter Sale
+                                </span>
+                              )}
+                              {sale.payment_mode && (
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  Mode: {sale.payment_mode === 'split' ? `Split (₹${sale.online_amount || 0} UPI / ₹${sale.offline_amount || 0} Cash)` : sale.payment_mode === 'online' ? 'UPI (Online)' : 'Cash (Offline)'}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 sm:px-6 py-4 text-right text-emerald-400 font-bold">₹{sale.amount}</td>
                         </tr>
@@ -760,7 +802,16 @@ export function InventoryPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setSaleQty((q) => Math.max(1, q - 1))}
+                      onClick={() => {
+                        const newQ = Math.max(1, saleQty - 1)
+                        setSaleQty(newQ)
+                        if (salePayMode === 'split') {
+                          const total = newQ * salePrice
+                          const half = Math.floor(total / 2)
+                          setSaleSplitOnline(half)
+                          setSaleSplitOffline(total - half)
+                        }
+                      }}
                       className="h-10 w-10 border-slate-700 bg-slate-950 text-white shrink-0"
                     >
                       <Minus className="w-4 h-4" />
@@ -770,13 +821,31 @@ export function InventoryPage() {
                       min="1"
                       max={saleItem.quantity}
                       value={saleQty}
-                      onChange={(e) => setSaleQty(Math.max(1, Number(e.target.value)))}
+                      onChange={(e) => {
+                        const newQ = Math.max(1, Number(e.target.value))
+                        setSaleQty(newQ)
+                        if (salePayMode === 'split') {
+                          const total = newQ * salePrice
+                          const half = Math.floor(total / 2)
+                          setSaleSplitOnline(half)
+                          setSaleSplitOffline(total - half)
+                        }
+                      }}
                       className="bg-slate-950/60 border-slate-700 text-white text-center font-bold text-base"
                     />
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setSaleQty((q) => Math.min(saleItem.quantity, q + 1))}
+                      onClick={() => {
+                        const newQ = Math.min(saleItem.quantity, saleQty + 1)
+                        setSaleQty(newQ)
+                        if (salePayMode === 'split') {
+                          const total = newQ * salePrice
+                          const half = Math.floor(total / 2)
+                          setSaleSplitOnline(half)
+                          setSaleSplitOffline(total - half)
+                        }
+                      }}
                       className="h-10 w-10 border-slate-700 bg-slate-950 text-white shrink-0"
                     >
                       <Plus className="w-4 h-4" />
@@ -790,10 +859,91 @@ export function InventoryPage() {
                     type="number"
                     min="0"
                     value={salePrice}
-                    onChange={(e) => setSalePrice(Number(e.target.value))}
+                    onChange={(e) => {
+                      const newP = Number(e.target.value)
+                      setSalePrice(newP)
+                      if (salePayMode === 'split') {
+                        const total = saleQty * newP
+                        const half = Math.floor(total / 2)
+                        setSaleSplitOnline(half)
+                        setSaleSplitOffline(total - half)
+                      }
+                    }}
                     className="bg-slate-950/60 border-slate-700 text-white"
                   />
                 </div>
+
+                <div>
+                  <label className="text-xs text-slate-400 font-semibold block mb-1.5">Payment Mode</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['offline', 'online', 'split'] as const).map((mode) => (
+                      <Button
+                        key={mode}
+                        type="button"
+                        size="sm"
+                        variant={salePayMode === mode ? 'default' : 'outline'}
+                        onClick={() => {
+                          setSalePayMode(mode)
+                          const total = saleQty * salePrice
+                          if (mode === 'split') {
+                            const half = Math.floor(total / 2)
+                            setSaleSplitOnline(half)
+                            setSaleSplitOffline(total - half)
+                          } else {
+                            setSaleSplitOnline(0)
+                            setSaleSplitOffline(0)
+                          }
+                        }}
+                        className={salePayMode === mode ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-bold' : 'border-slate-700 text-slate-300'}
+                      >
+                        {mode === 'offline' ? 'Cash' : mode === 'online' ? 'UPI' : 'Split'}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {salePayMode === 'split' && (
+                  <div className="space-y-2 bg-slate-950/60 p-3 rounded-lg border border-slate-800">
+                    <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                      <span>Enter split payment breakdown:</span>
+                      <span className={saleSplitOnline + saleSplitOffline === saleQty * salePrice ? 'font-bold text-emerald-400' : 'font-bold text-amber-400'}>
+                        ₹{saleSplitOnline + saleSplitOffline} / ₹{saleQty * salePrice}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-slate-300 text-xs mb-1 block">Online / UPI (₹)</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max={saleQty * salePrice}
+                          value={saleSplitOnline}
+                          onChange={(e) => {
+                            const total = saleQty * salePrice
+                            const val = Math.max(0, Math.min(total, parseInt(e.target.value, 10) || 0))
+                            setSaleSplitOnline(val)
+                          }}
+                          className="bg-slate-900 border-slate-700 text-white text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-slate-300 text-xs mb-1 block">Cash / Offline (₹)</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max={saleQty * salePrice}
+                          value={saleSplitOffline}
+                          onChange={(e) => {
+                            const total = saleQty * salePrice
+                            const val = Math.max(0, Math.min(total, parseInt(e.target.value, 10) || 0))
+                            setSaleSplitOffline(val)
+                          }}
+                          className="bg-slate-900 border-slate-700 text-white text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-emerald-950/40 p-3 rounded-lg border border-emerald-800/40 flex justify-between items-center">
                   <span className="text-xs font-semibold text-slate-300">Total Sale Amount:</span>
@@ -862,11 +1012,15 @@ export function InventoryPage() {
                   <span>
                     New Stock Total: <strong className="text-emerald-400">{Math.max(0, editingItem.quantity + Number(addQty))} units</strong>
                   </span>
-                  {Number(addQty) > 0 && (
+                  {Number(addQty) > 0 ? (
                     <span className="text-emerald-400 font-bold text-[11px] bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/50 flex items-center gap-1">
                       <TrendingUp className="w-3 h-3" /> +{Number(addQty)} units restocked
                     </span>
-                  )}
+                  ) : Number(addQty) < 0 ? (
+                    <span className="text-amber-400 font-bold text-[11px] bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800/50 flex items-center gap-1">
+                      -{Math.abs(Number(addQty))} units reduced safely
+                    </span>
+                  ) : null}
                 </div>
               </div>
 

@@ -478,26 +478,60 @@ export function BookingPage() {
       const booking = paymentModalBooking
       setPaymentModalBooking(null)
       const totalAmt = Number(booking.amount || 0)
+      const currentPaid = Number(booking.paid_amount || (booking.payment_status === 'paid' ? totalAmt : 0))
       const enteredPaid = Math.max(0, Math.min(totalAmt, Number(paymentModalPaidInput || 0)))
       const pendingAmt = Math.max(0, totalAmt - enteredPaid)
       const newStatus: 'paid' | 'pending' = pendingAmt <= 0 ? 'paid' : 'pending'
       const mode = resolvePaymentMode(booking)
+
+      const diff = enteredPaid - currentPaid
+      const currentOnline = Number(booking.online_amount || 0)
+      const currentOffline = Number(booking.offline_amount || 0)
+
+      let nextOnline = currentOnline
+      let nextOffline = currentOffline
+
+      if (diff > 0) {
+        if (mode === 'online') {
+          nextOnline += diff
+        } else if (mode === 'offline') {
+          nextOffline += diff
+        } else {
+          const half = Math.floor(diff / 2)
+          nextOnline += half
+          nextOffline += diff - half
+        }
+      } else if (diff < 0) {
+        if (mode === 'online') {
+          nextOnline = enteredPaid
+          nextOffline = 0
+        } else if (mode === 'offline') {
+          nextOnline = 0
+          nextOffline = enteredPaid
+        } else {
+          const half = Math.floor(enteredPaid / 2)
+          nextOnline = half
+          nextOffline = enteredPaid - half
+        }
+      }
+
+      let finalMode = mode
+      if (nextOnline > 0 && nextOffline > 0) {
+        finalMode = 'split'
+      } else if (nextOnline > 0 && nextOffline === 0) {
+        finalMode = 'online'
+      } else if (nextOffline > 0 && nextOnline === 0) {
+        finalMode = 'offline'
+      }
 
       await updateBooking.mutateAsync({
         id: booking.id,
         payment_status: newStatus,
         paid_amount: enteredPaid,
         pending_amount: pendingAmt,
-        payment_mode: mode,
-        online_amount: booking.online_amount ?? (mode === 'online' ? enteredPaid : mode === 'split' ? Math.floor(enteredPaid / 2) : 0),
-        offline_amount: booking.offline_amount ?? (mode === 'offline' ? enteredPaid : mode === 'split' ? enteredPaid - Math.floor(enteredPaid / 2) : 0),
-      })
-
-      await syncInventorySales.mutateAsync({
-        bookingId: booking.id,
-        date: booking.booking_date,
-        isPaid: newStatus === 'paid' || enteredPaid > 0,
-        addOns: booking.add_ons || [],
+        payment_mode: finalMode,
+        online_amount: nextOnline,
+        offline_amount: nextOffline,
       })
       showSuccess(booking.customer_name)
     } catch (e) {

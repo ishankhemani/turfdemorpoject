@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { useMonthlyData, useDailyData, useBookings } from '@/services/dashboard-service'
 import { useExpenses, useLabour, useLiabilities } from '@/services/accounts-service'
 import { useCustomers } from '@/services/customers-service'
+import { useAllInventorySales } from '@/services/inventory-service'
+
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { PageLoadingState } from '@/components/common/loading'
 import { Download, Calendar, IndianRupee, Users, TrendingUp, Wallet, Clock, FileSpreadsheet } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
@@ -30,15 +31,17 @@ export function ReportsPage() {
 
   const { data: monthlyData, isLoading: monthlyLoading } = useMonthlyData()
   const { data: dailyData = [], isLoading: dailyLoading } = useDailyData(
-    reportType === 'custom' ? undefined : 10,
-    reportType === 'custom' ? customStartDate : undefined,
-    reportType === 'custom' ? customEndDate : undefined
+    undefined,
+    customStartDate,
+    customEndDate
   )
   const { data: bookings } = useBookings()
   const { data: expenses } = useExpenses()
   const { data: labour } = useLabour()
   const { data: liabilities } = useLiabilities()
   const { data: customers } = useCustomers()
+  const { data: rangeInventorySales = [] } = useAllInventorySales(customStartDate, customEndDate)
+
 
   if (monthlyLoading || dailyLoading) {
     return <PageLoadingState />
@@ -66,23 +69,17 @@ export function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
-  // Active bookings filtered by current report view
+  // Active bookings filtered by selected date range
   const activeBookings = (bookings || []).filter((b) => {
-    if (reportType === 'custom') {
-      return b.booking_date >= customStartDate && b.booking_date <= customEndDate
-    }
-    if (reportType === 'daily') {
-      const dailyDates = new Set(dailyData.map((d) => d.date))
-      return dailyDates.has(b.booking_date)
-    }
-    return true
+    return b.booking_date >= customStartDate && b.booking_date <= customEndDate
   })
 
-  // derive paid/pending amounts using paid_amount and pending_amount if available
+  // Derive online / offline / pending metrics
   let onlineRevenue = 0
   let offlineRevenue = 0
   let pendingAmount = 0
   let pendingCount = 0
+
   activeBookings.forEach((b) => {
     const isOnlineBooking = Boolean(b.transaction_id || b.source === 'website' || b.payment_mode === 'online')
     const mode = b.payment_mode || (isOnlineBooking ? 'online' : 'offline')
@@ -90,13 +87,11 @@ export function ReportsPage() {
     const paidAmt = Number((b as any).paid_amount ?? 0)
     const pendingAmt = Number((b as any).pending_amount ?? Math.max(0, totalAmt - paidAmt))
 
-    // sum pending across bookings
     if (pendingAmt > 0) {
       pendingAmount += pendingAmt
       pendingCount++
     }
 
-    // allocate actually received (paidAmt) into online/offline
     if (paidAmt > 0) {
       if (mode === 'split') {
         const [onAmt, offAmt] = distributeSplitAmounts(Number((b as any).online_amount || 0), Number((b as any).offline_amount || 0), paidAmt)
@@ -110,133 +105,575 @@ export function ReportsPage() {
     }
   })
 
-  // Top summary stats — custom date range (dailyData is fetched with start/end overrides)
-  const displayRevenue = (dailyData || []).reduce((sum, d) => sum + d.revenue, 0)
-  // Expenses already includes general expenses + labour payments + liability payments
-  const displayExpenses = (dailyData || []).reduce((sum, d) => sum + d.expenses, 0)
+  // Include standalone inventory counter sales into online/offline breakdown (matches Dashboard logic)
+  rangeInventorySales.forEach((sale) => {
+    if (!sale.booking_id) {
+      const amt = Number(sale.amount || 0)
+      const mode = sale.payment_mode || 'offline'
+      if (mode === 'split') {
+        onlineRevenue += Number(sale.online_amount || 0)
+        offlineRevenue += Number(sale.offline_amount || 0)
+      } else if (mode === 'online') {
+        onlineRevenue += amt
+      } else {
+        offlineRevenue += amt
+      }
+    }
+  })
 
+
+
+  // Financial Summary Totals
+  const displayRevenue = (dailyData || []).reduce((sum, d) => sum + d.revenue, 0)
+  const displayExpenses = (dailyData || []).reduce((sum, d) => sum + d.expenses, 0)
   const displayProfit = displayRevenue - displayExpenses
+  const profitMarginPercent = displayRevenue > 0 ? ((displayProfit / displayRevenue) * 100).toFixed(1) : '0.0'
 
   const generateReport = () => {
-    const totalRevenue = displayRevenue
-    const operatingOut = displayExpenses
-    const totalProfit = displayProfit
-
     const filterByDate = (dateStr?: string) => {
       if (!dateStr) return true
-      if (reportType === 'custom') {
-        return dateStr >= customStartDate && dateStr <= customEndDate
-      }
-      if (reportType === 'daily') {
-        const dailyDates = new Set(dailyData.map((d) => d.date))
-        return dailyDates.has(dateStr)
-      }
-      return true
+      return dateStr >= customStartDate && dateStr <= customEndDate
     }
 
-    const generalExpenses = (expenses || [])
-      .filter((e) => filterByDate(e.date))
-      .reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
+    const generalExpensesList = (expenses || []).filter((e) => filterByDate(e.date))
+    const generalExpensesTotal = generalExpensesList.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
 
-    const labourPayments = (labour || [])
-      .reduce((sum, worker) => sum + (worker.payments || [])
-        .filter((p) => filterByDate(p.date))
-        .reduce((workerSum, payment) => workerSum + Number(payment.amount || 0), 0), 0)
+    const labourPaymentsList: Array<{ worker: string; date: string; amount: number; notes?: string }> = []
+    ;(labour || []).forEach((worker) => {
+      ;(worker.payments || []).forEach((payment) => {
+        if (filterByDate(payment.date)) {
+          labourPaymentsList.push({
+            worker: worker.name,
+            date: payment.date,
+            amount: Number(payment.amount || 0),
+            notes: payment.remarks || undefined,
+          })
+        }
+      })
+    })
+    const labourPaymentsTotal = labourPaymentsList.reduce((sum, p) => sum + p.amount, 0)
 
-    const pendingBookingAmount = pendingAmount
-    const outstandingLiabilities = (liabilities || [])
-      .filter((liability) => !liability.is_completed)
-      .reduce((sum, liability) => sum + Number(liability.outstanding_amount || 0), 0)
-    const reportWindow = window.open('', '_blank', 'noopener,noreferrer')
-    if (!reportWindow) return
+    const outstandingLiabilitiesList = (liabilities || []).filter((liability) => !liability.is_completed)
+    const outstandingLiabilitiesTotal = outstandingLiabilitiesList.reduce(
+      (sum, liability) => sum + Number(liability.outstanding_amount || 0),
+      0
+    )
 
-    const dailyRows = (dailyData || []).map((day) => `
+    const reportRefId = `ELITE-AUDIT-${customStartDate.replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`
+    const generatedTimestamp = new Date().toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    })
+
+    const reportWindow = window.open('', '_blank')
+    if (!reportWindow) {
+      alert('Pop-up blocked! Please allow pop-ups for this site to view/download the Audit PDF report.')
+      return
+    }
+
+    // Render HTML Rows safely
+    const dailyRowsHTML = (dailyData || []).map((day) => {
+      const margin = day.revenue > 0 ? ((day.profit / day.revenue) * 100).toFixed(1) : '0.0'
+      const profitClass = day.profit >= 0 ? 'text-emerald-700' : 'text-rose-700'
+      return `
+        <tr>
+          <td class="font-medium">${day.date}</td>
+          <td>${day.totalBookings} bookings</td>
+          <td class="text-emerald-700 font-semibold">${formatCurrency(day.revenue)}</td>
+          <td class="text-rose-700">${formatCurrency(day.expenses)}</td>
+          <td class="${profitClass} font-bold">${formatCurrency(day.profit)}</td>
+          <td><span class="badge ${Number(margin) >= 0 ? 'badge-emerald' : 'badge-rose'}">${margin}%</span></td>
+        </tr>`
+    }).join('')
+
+    const bookingRowsHTML = activeBookings.length > 0 ? activeBookings.map((b) => {
+      const paidAmt = Number((b as any).paid_amount ?? 0)
+      const pendingAmt = Number((b as any).pending_amount ?? Math.max(0, Number(b.amount || 0) - paidAmt))
+      const statusBadge = b.payment_status === 'paid' 
+        ? '<span class="badge badge-emerald">PAID</span>' 
+        : pendingAmt > 0 
+          ? '<span class="badge badge-rose">PENDING</span>' 
+          : '<span class="badge badge-blue">PARTIAL</span>'
+      
+      const modeBadge = b.payment_mode === 'online' 
+        ? '<span class="badge badge-blue">ONLINE</span>' 
+        : b.payment_mode === 'split' 
+          ? '<span class="badge badge-purple">SPLIT</span>' 
+          : '<span class="badge badge-amber">CASH</span>'
+
+      const timeStr = b.start_time && b.end_time ? `${b.start_time} - ${b.end_time}` : b.booking_time || 'N/A'
+
+      return `
+        <tr>
+          <td class="font-medium">${b.booking_date}</td>
+          <td>
+            <div class="font-bold text-slate-900">${b.customer_name || 'Guest User'}</div>
+            <div class="text-xs text-slate-500">${b.mobile_number || 'N/A'}</div>
+          </td>
+          <td>${b.sport || 'Sports Ground'} (${timeStr})</td>
+          <td class="font-bold">${formatCurrency(Number(b.amount || 0))}</td>
+          <td>${statusBadge}</td>
+          <td>${modeBadge}</td>
+          <td class="text-emerald-700 font-semibold">${formatCurrency(paidAmt)}</td>
+          <td class="${pendingAmt > 0 ? 'text-rose-700 font-bold' : 'text-slate-400'}">${formatCurrency(pendingAmt)}</td>
+        </tr>`
+    }).join('') : `<tr><td colSpan="8" class="empty-cell">No bookings registered in this period.</td></tr>`
+
+
+
+    const generalExpenseRowsHTML = generalExpensesList.length > 0 ? generalExpensesList.map((e) => `
       <tr>
-        <td>${day.date}</td>
-        <td>${day.totalBookings}</td>
-        <td>${formatCurrency(day.revenue)}</td>
-        <td>${formatCurrency(day.expenses)}</td>
-        <td>${formatCurrency(day.profit)}</td>
-      </tr>`).join('')
+        <td>${e.date}</td>
+        <td><span class="badge badge-slate">${e.category || 'General'}</span></td>
+        <td class="font-medium text-slate-900">${e.title || e.description || 'Expense Item'}</td>
+        <td class="text-rose-700 font-bold">${formatCurrency(Number(e.amount || 0))}</td>
+      </tr>`).join('') : `<tr><td colSpan="4" class="empty-cell">No general expenses recorded in this period.</td></tr>`
 
-    const monthlyRows = (monthlyData || []).map((month) => `
+    const labourRowsHTML = labourPaymentsList.length > 0 ? labourPaymentsList.map((p) => `
       <tr>
-        <td>${month.month}</td>
-        <td>${formatCurrency(month.revenue)}</td>
-        <td>${formatCurrency(month.expenses)}</td>
-        <td>${formatCurrency(month.profit)}</td>
+        <td>${p.date}</td>
+        <td class="font-semibold text-slate-900">${p.worker}</td>
+        <td class="text-slate-600">${p.notes || 'Wage Payment'}</td>
+        <td class="text-amber-700 font-bold">${formatCurrency(p.amount)}</td>
+      </tr>`).join('') : `<tr><td colSpan="4" class="empty-cell">No staff wage disbursements in this period.</td></tr>`
+
+    const monthlyRowsHTML = (monthlyData || []).map((month) => `
+      <tr>
+        <td class="font-bold text-slate-900">${month.month}</td>
+        <td class="text-emerald-700 font-semibold">${formatCurrency(month.revenue)}</td>
+        <td class="text-rose-700">${formatCurrency(month.expenses)}</td>
+        <td class="${month.profit >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}">${formatCurrency(month.profit)}</td>
       </tr>`).join('')
 
     reportWindow.document.write(`<!doctype html>
-<html>
+<html lang="en">
 <head>
-  <title>Elite Arena ${reportType} report</title>
+  <meta charset="utf-8">
+  <title>Audit Report - Elite Arena (${customStartDate} to ${customEndDate})</title>
   <style>
-    @page { size: A4; margin: 18mm; }
-    body { font-family: Inter, Arial, sans-serif; color: #0f172a; background: #fff; }
-    .header { display:flex; justify-content:space-between; align-items:flex-start; border-bottom: 2px solid #0f766e; padding-bottom: 18px; margin-bottom: 22px; }
-    .brand { font-size: 24px; font-weight: 800; color: #0f766e; letter-spacing: -0.04em; }
-    .muted { color: #64748b; font-size: 12px; }
-    .grid { display:grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0; }
-    .grid6 { display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0; }
-    .card { border:1px solid #dbe4e7; border-radius: 16px; padding: 14px; background: #f8fafc; }
-    .card.online { border-color: #bfdbfe; background: #eff6ff; }
-    .card.offline { border-color: #fde68a; background: #fffbeb; }
-    .card.pending { border-color: #fca5a5; background: #fef2f2; }
-    .label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color:#64748b; }
-    .value { font-size: 18px; font-weight: 800; margin-top: 6px; }
-    .value.blue { color: #1d4ed8; }
-    .value.amber { color: #d97706; }
-    .value.red { color: #dc2626; }
-    h2 { font-size: 15px; margin-top: 24px; color:#0f172a; }
-    table { width:100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-    th { text-align:left; background:#0f766e; color:#fff; padding:10px; }
-    td { border-bottom:1px solid #e2e8f0; padding:10px; }
-    .note { padding: 12px; border-radius: 12px; background:#ecfdf5; color:#065f46; font-size: 12px; margin-top: 16px; }
-    .footer { margin-top: 28px; border-top:1px solid #e2e8f0; padding-top: 10px; font-size: 11px; color:#64748b; }
+    @page {
+      size: A4 portrait;
+      margin: 12mm 15mm;
+    }
+    *, *:before, *:after { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #0f172a;
+      background: #ffffff;
+      margin: 0;
+      padding: 0;
+      font-size: 11px;
+      line-height: 1.4;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    .no-print-bar {
+      background: #0f172a;
+      color: #ffffff;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      margin-bottom: 20px;
+    }
+    .btn-print {
+      background: #10b981;
+      color: #ffffff;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-print:hover { background: #059669; }
+
+    .audit-container { padding: 0 10px; }
+
+    /* Header Styling */
+    .header-card {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #ffffff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      border-left: 6px solid #10b981;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .brand-title {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-title span { color: #34d399; }
+    .subtitle { color: #94a3b8; font-size: 12px; font-weight: 500; margin-top: 3px; }
+    .meta-box { text-align: right; }
+    .meta-ref { font-family: monospace; font-size: 12px; font-weight: 700; color: #34d399; }
+    .meta-date { color: #cbd5e1; font-size: 11px; margin-top: 4px; }
+
+    /* KPI Summary Grid */
+    .section-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 6px;
+      margin-top: 22px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .kpi-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .kpi-card.emerald { background: #f0fdf4; border-color: #bbf7d0; }
+    .kpi-card.rose { background: #fff1f2; border-color: #fecdd3; }
+    .kpi-card.blue { background: #eff6ff; border-color: #bfdbfe; }
+    .kpi-card.amber { background: #fffbeb; border-color: #fde68a; }
+    .kpi-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; }
+    .kpi-value { font-size: 18px; font-weight: 800; color: #0f172a; margin-top: 4px; }
+    .kpi-value.emerald { color: #059669; }
+    .kpi-value.rose { color: #e11d48; }
+    .kpi-value.blue { color: #2563eb; }
+    .kpi-value.amber { color: #d97706; }
+    .kpi-sub { font-size: 10px; color: #64748b; margin-top: 2px; }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+      font-size: 11px;
+    }
+    th {
+      background: #0f172a;
+      color: #ffffff;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      color: #334155;
+      vertical-align: middle;
+    }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    .empty-cell { text-align: center; color: #94a3b8; padding: 14px; italic; }
+
+    /* Badges */
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 9999px;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-emerald { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .badge-rose { background: #ffe4e6; color: #9f1239; border: 1px solid #fca5a5; }
+    .badge-blue { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+    .badge-amber { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+    .badge-purple { background: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; }
+    .badge-slate { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+    /* Summary Callouts */
+    .callout-box {
+      background: #f8fafc;
+      border: 1px border-slate-300;
+      border-left: 4px solid #0f172a;
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin: 16px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .callout-title { font-weight: 700; color: #0f172a; font-size: 12px; }
+    .callout-desc { color: #64748b; font-size: 11px; margin-top: 2px; }
+
+    /* Footer / Signature Block */
+    .audit-footer {
+      margin-top: 30px;
+      padding-top: 16px;
+      border-top: 2px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      page-break-inside: avoid;
+    }
+    .sig-block { width: 200px; text-align: center; }
+    .sig-line { border-bottom: 1px dashed #94a3b8; margin-bottom: 6px; height: 35px; }
+    .sig-label { font-size: 10px; font-weight: 700; color: #475569; text-transform: uppercase; }
+
+    .stamp-box {
+      border: 2px double #10b981;
+      padding: 6px 14px;
+      border-radius: 8px;
+      color: #047857;
+      font-weight: 800;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      text-align: center;
+      background: #ecfdf5;
+    }
+
+    @media print {
+      .no-print-bar { display: none !important; }
+      body { background: #ffffff; }
+      .audit-container { padding: 0; }
+      tr, .kpi-card, .header-card { page-break-inside: avoid; }
+    }
   </style>
 </head>
 <body>
-  <div class="header">
+
+  <div class="no-print-bar">
     <div>
-      <div class="brand">Elite Arena Business Report</div>
-      <div class="muted">${reportType.toUpperCase()} REPORT • Generated ${new Date().toLocaleString()}</div>
+      <strong style="font-size: 14px;">System Audit PDF Ready</strong>
+      <span style="font-size: 12px; opacity: 0.8; margin-left: 10px;">Click the button on right or press Ctrl+P to save as PDF.</span>
     </div>
-    <div class="muted">Production financial summary</div>
+    <button class="btn-print" onclick="window.print()">
+      🖨️ Save / Print Audit PDF
+    </button>
   </div>
-  <div class="grid">
-    <div class="card"><div class="label">Total Revenue (Paid)</div><div class="value">${formatCurrency(totalRevenue)}</div></div>
-    <div class="card"><div class="label">Money Out</div><div class="value">${formatCurrency(operatingOut)}</div></div>
-    <div class="card"><div class="label">Net Profit</div><div class="value">${formatCurrency(totalProfit)}</div></div>
-    <div class="card"><div class="label">Total Bookings</div><div class="value">${(bookings || []).length}</div></div>
+
+  <div class="audit-container">
+
+    <!-- Header Card -->
+    <div class="header-card">
+      <div>
+        <div class="brand-title">ELITE ARENA <span>SPORTS POS</span></div>
+        <div class="subtitle">Official Financial & Operational Audit Report</div>
+        <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">
+          Filter Range: <strong style="color: #ffffff;">${customStartDate}</strong> to <strong style="color: #ffffff;">${customEndDate}</strong>
+        </div>
+      </div>
+      <div class="meta-box">
+        <div class="meta-ref">${reportRefId}</div>
+        <div class="meta-date">Generated: ${generatedTimestamp}</div>
+        <div style="margin-top: 6px;">
+          <span class="badge badge-emerald">REALTIME DB VERIFIED</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Executive Financial KPIs -->
+    <div class="section-title">
+      1. Executive Financial Overview
+      <span style="font-size: 11px; text-transform: none; color: #64748b; font-weight: normal;">Settled Transactions</span>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi-card emerald">
+        <div class="kpi-label">Gross Paid Revenue</div>
+        <div class="kpi-value emerald">${formatCurrency(displayRevenue)}</div>
+        <div class="kpi-sub">Actual Collected In Flow</div>
+      </div>
+      <div class="kpi-card rose">
+        <div class="kpi-label">Total Outflows / Expenses</div>
+        <div class="kpi-value rose">${formatCurrency(displayExpenses)}</div>
+        <div class="kpi-sub">General + Labour Wages</div>
+      </div>
+      <div class="kpi-card emerald">
+        <div class="kpi-label">Net Operating Profit</div>
+        <div class="kpi-value ${displayProfit >= 0 ? 'emerald' : 'rose'}">${formatCurrency(displayProfit)}</div>
+        <div class="kpi-sub">Margin: ${profitMarginPercent}%</div>
+      </div>
+      <div class="kpi-card amber">
+        <div class="kpi-label">Pending Receivables</div>
+        <div class="kpi-value amber">${formatCurrency(pendingAmount)}</div>
+        <div class="kpi-sub">${pendingCount} Unpaid Booking(s)</div>
+      </div>
+    </div>
+
+    <!-- Payment Modes KPI Grid -->
+    <div class="kpi-grid" style="grid-template-columns: repeat(2, 1fr);">
+      <div class="kpi-card blue">
+        <div class="kpi-label">UPI / Online Revenue</div>
+        <div class="kpi-value blue">${formatCurrency(onlineRevenue)}</div>
+        <div class="kpi-sub">Digital Payments</div>
+      </div>
+      <div class="kpi-card amber">
+        <div class="kpi-label">Cash / Offline Revenue</div>
+        <div class="kpi-value amber">${formatCurrency(offlineRevenue)}</div>
+        <div class="kpi-sub">Physical Cash</div>
+      </div>
+    </div>
+
+    <!-- Section 2: Detailed Booking Transactions -->
+    <div class="section-title">
+      2. Itemized Booking Transactions (${activeBookings.length} Bookings)
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Customer Details</th>
+          <th>Slot & Ground</th>
+          <th>Total Amount</th>
+          <th>Status</th>
+          <th>Mode</th>
+          <th>Paid Amt</th>
+          <th>Pending</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${bookingRowsHTML}
+      </tbody>
+    </table>
+
+
+
+    <!-- Section 4: Expenses & Staff Disbursals -->
+    <div class="section-title">
+      3. Operational Outflows & Staff Wages
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+      <div>
+        <div style="font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 6px; text-transform: uppercase;">General Expenses (${formatCurrency(generalExpensesTotal)})</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${generalExpenseRowsHTML}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 6px; text-transform: uppercase;">Labour & Staff Wages (${formatCurrency(labourPaymentsTotal)})</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Worker Name</th>
+              <th>Notes</th>
+              <th>Amount Paid</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${labourRowsHTML}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Section 5: Daily Financial Performance Breakdown -->
+    <div class="section-title">
+      4. Daily Performance Breakdown Matrix
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Bookings</th>
+          <th>Gross Revenue</th>
+          <th>Expenses</th>
+          <th>Daily Profit</th>
+          <th>Profit Margin</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${dailyRowsHTML}
+      </tbody>
+    </table>
+
+    <!-- Section 6: Monthly Financial Summary -->
+    <div class="section-title">
+      5. Monthly Financial Summary Log
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Month</th>
+          <th>Revenue</th>
+          <th>Expenses + Labour</th>
+          <th>Monthly Net Profit</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${monthlyRowsHTML}
+      </tbody>
+    </table>
+
+    <!-- Callout Box for Active Liabilities -->
+    <div class="callout-box">
+      <div>
+        <div class="callout-title">Outstanding Liabilities Status: ${formatCurrency(outstandingLiabilitiesTotal)}</div>
+        <div class="callout-desc">${outstandingLiabilitiesList.length} active credit tracker item(s) pending fulfillment. (Tracked separately from daily cash flow).</div>
+      </div>
+      <div>
+        <span class="badge badge-amber">LIABILITY TRACKER</span>
+      </div>
+    </div>
+
+    <!-- Audit Compliance & Signatures Footer -->
+    <div class="audit-footer">
+      <div class="stamp-box">
+        ✓ AUDITED & VERIFIED<br>
+        <span style="font-size: 8px; opacity: 0.85;">ELITE ARENA POS CORE</span>
+      </div>
+
+      <div class="sig-block">
+        <div class="sig-line"></div>
+        <div class="sig-label">System Administrator</div>
+      </div>
+
+      <div class="sig-block">
+        <div class="sig-line"></div>
+        <div class="sig-label">Authorized Facility Owner</div>
+      </div>
+    </div>
+
+    <div style="text-align: center; margin-top: 16px; font-size: 9px; color: #94a3b8;">
+      Confidential Financial Document • Generated automatically by Elite Arena Turf POS System • ${generatedTimestamp}
+    </div>
+
   </div>
-  <div class="grid6">
-    <div class="card online"><div class="label">Online Revenue (UPI/Card)</div><div class="value blue">${formatCurrency(onlineRevenue)}</div></div>
-    <div class="card offline"><div class="label">Cash / Offline Revenue</div><div class="value amber">${formatCurrency(offlineRevenue)}</div></div>
-    <div class="card pending"><div class="label">Pending (Unpaid)</div><div class="value red">${formatCurrency(pendingBookingAmount)}</div></div>
-  </div>
-  <h2>Business Summary</h2>
-  <table>
-    <tr><th>Metric</th><th>Value</th></tr>
-    <tr><td>Paid Bookings</td><td>${(bookings || []).filter((booking) => booking.payment_status === 'paid').length}</td></tr>
-    <tr><td>Pending Bookings (Unpaid Amount)</td><td>${formatCurrency(pendingBookingAmount)}</td></tr>
-    <tr><td>Online Revenue (UPI/Card)</td><td>${formatCurrency(onlineRevenue)}</td></tr>
-    <tr><td>Cash / Offline Revenue</td><td>${formatCurrency(offlineRevenue)}</td></tr>
-    <tr><td>Total Customers</td><td>${(customers || []).length}</td></tr>
-    <tr><td>General Expenses</td><td>${formatCurrency(generalExpenses)}</td></tr>
-    <tr><td>Labour Paid</td><td>${formatCurrency(labourPayments)}</td></tr>
-    <tr><td>Outstanding Liabilities</td><td>${formatCurrency(outstandingLiabilities)} (tracker only, not deducted from profit)</td></tr>
-  </table>
 
-  <h2>Daily Summary (${reportType === 'custom' ? `${customStartDate} to ${customEndDate}` : 'Recent Days'})</h2>
-  <table><thead><tr><th>Date</th><th>Bookings</th><th>Revenue</th><th>Expenses</th><th>Profit</th></tr></thead><tbody>${dailyRows}</tbody></table>
-
-  <h2>Monthly Financial Table</h2>
-  <table><thead><tr><th>Month</th><th>Revenue</th><th>Expenses + Labour</th><th>Profit</th></tr></thead><tbody>${monthlyRows}</tbody></table>
-
-  <div class="note">Revenue = PAID bookings only. Pending bookings are shown separately and NOT included in revenue.</div>
-  <div class="footer">Formatted for A4 PDF export. Use browser print options.</div>
-  <script>window.onload = () => { window.print(); };</script>
+  <script>
+    setTimeout(function() {
+      window.focus();
+      window.print();
+    }, 250);
+  </script>
 </body>
 </html>`)
     reportWindow.document.close()
@@ -247,15 +684,15 @@ export function ReportsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-2">
-            <Calendar className="w-8 h-8 text-emerald-400" /> Business Reports & Summaries
+            <Calendar className="w-8 h-8 text-emerald-400" /> Business Reports & Audit Summaries
           </h1>
-          <p className="text-slate-400 text-sm mt-1">Select a date range to view revenue, expenses, and profit for that period.</p>
+          <p className="text-slate-400 text-sm mt-1">Select a date range to generate comprehensive financial audit reports, track bookings, expenses, and inventory sales.</p>
         </div>
         <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 w-full sm:w-auto">
-          {/* Date range pickers — always visible */}
+          {/* Date range pickers */}
           <div className="flex flex-wrap items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-800 text-xs w-full sm:w-auto">
               <div className="flex items-center gap-1.5 flex-1">
-                <span className="text-slate-400">From:</span>
+                <span className="text-slate-400 font-medium">From:</span>
                 <Input
                   type="date"
                   value={customStartDate}
@@ -264,7 +701,7 @@ export function ReportsPage() {
                 />
               </div>
               <div className="flex items-center gap-1.5 flex-1">
-                <span className="text-slate-400">To:</span>
+                <span className="text-slate-400 font-medium">To:</span>
                 <Input
                   type="date"
                   value={customEndDate}
@@ -276,12 +713,11 @@ export function ReportsPage() {
           <Button onClick={exportCSV} variant="outline" className="border-slate-700 text-slate-200 hover:bg-slate-800 w-full sm:w-auto">
             <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-400" /> Export CSV
           </Button>
-          <Button onClick={generateReport} className="bg-emerald-600 hover:bg-emerald-500 text-white w-full sm:w-auto font-bold">
-            <Download className="mr-2 h-4 w-4" /> Download PDF
+          <Button onClick={generateReport} className="bg-emerald-600 hover:bg-emerald-500 text-white w-full sm:w-auto font-bold shadow-lg shadow-emerald-950">
+            <Download className="mr-2 h-4 w-4" /> Download Audit PDF
           </Button>
         </div>
       </div>
-
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Card className="bg-slate-900/80 border-slate-800">

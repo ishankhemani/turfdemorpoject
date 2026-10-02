@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { useCustomers, useAreaStats, usePendingPayments } from '@/services/customers-service'
 import { useUpdateBooking } from '@/services/dashboard-service'
-import { useSyncBookingInventorySales } from '@/services/inventory-service'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -61,7 +60,6 @@ export function CustomersPage() {
   const { data: areaStats } = useAreaStats()
   const { data: pendingPayments = [] } = usePendingPayments()
   const updateBooking = useUpdateBooking()
-  const syncInventorySales = useSyncBookingInventorySales()
 
   const handleOpenPayTarget = (b: {
     id: string
@@ -75,26 +73,21 @@ export function CustomersPage() {
     online_amount?: number | null
     offline_amount?: number | null
   }) => {
+    const existingOnline = Number(b.online_amount || 0)
+    const existingOffline = Number(b.offline_amount || 0)
     const mode = b.payment_mode === 'online' || b.payment_mode === 'offline' || b.payment_mode === 'split' ? b.payment_mode : 'offline'
     const remaining = Math.max(0, Number(b.pending_amount ?? Math.max(0, b.amount - Number(b.paid_amount || 0))))
 
     setPayTarget({
       ...b,
       payment_mode: mode,
-      online_amount: b.online_amount ?? 0,
-      offline_amount: b.offline_amount ?? 0,
+      online_amount: existingOnline,
+      offline_amount: existingOffline,
     })
-    setPayMode(mode)
+    setPayMode('offline')
     setPayAmountInput(remaining)
-    // Pre-fill split amounts
-    if (mode === 'split') {
-      const half = Math.floor(remaining / 2)
-      setSplitOnlineInput(half)
-      setSplitOfflineInput(remaining - half)
-    } else {
-      setSplitOnlineInput(0)
-      setSplitOfflineInput(0)
-    }
+    setSplitOnlineInput(0)
+    setSplitOfflineInput(0)
   }
 
   const handleSavePayTarget = async () => {
@@ -106,27 +99,46 @@ export function CustomersPage() {
       const totalAmt = Number(target.amount || 0)
       const currentPaid = Number(target.paid_amount || 0)
       const currentPending = Number(target.pending_amount ?? Math.max(0, totalAmt - currentPaid))
-      const receivedNow = Math.max(0, Math.min(currentPending, Number(payAmountInput || 0)))
+
+      let newOnlineCollected = 0
+      let newOfflineCollected = 0
+      let receivedNow = 0
+
+      if (payMode === 'online') {
+        receivedNow = Math.max(0, Math.min(currentPending, Number(payAmountInput || 0)))
+        newOnlineCollected = receivedNow
+        newOfflineCollected = 0
+      } else if (payMode === 'offline') {
+        receivedNow = Math.max(0, Math.min(currentPending, Number(payAmountInput || 0)))
+        newOnlineCollected = 0
+        newOfflineCollected = receivedNow
+      } else {
+        const manualOnline = Math.max(0, Number(splitOnlineInput || 0))
+        const manualOffline = Math.max(0, Number(splitOfflineInput || 0))
+        const totalSplitEntered = manualOnline + manualOffline
+        receivedNow = Math.max(0, Math.min(currentPending, totalSplitEntered))
+
+        if (totalSplitEntered > receivedNow && totalSplitEntered > 0) {
+          const ratio = receivedNow / totalSplitEntered
+          newOnlineCollected = Math.floor(manualOnline * ratio)
+          newOfflineCollected = receivedNow - newOnlineCollected
+        } else {
+          newOnlineCollected = manualOnline
+          newOfflineCollected = manualOffline
+        }
+      }
+
+      if (receivedNow <= 0) return
+
       const nextPaid = currentPaid + receivedNow
       const nextPending = Math.max(0, totalAmt - nextPaid)
       const newStatus: 'paid' | 'pending' = nextPending <= 0 ? 'paid' : 'pending'
 
       const currentOnline = Number(target.online_amount || 0)
       const currentOffline = Number(target.offline_amount || 0)
-      let nextOnline = currentOnline
-      let nextOffline = currentOffline
 
-      if (payMode === 'online') {
-        nextOnline += receivedNow
-      } else if (payMode === 'offline') {
-        nextOffline += receivedNow
-      } else {
-        // Use manually entered split amounts; clamp to receivedNow
-        const manualOnline = Math.max(0, Math.min(receivedNow, splitOnlineInput))
-        const manualOffline = Math.max(0, Math.min(receivedNow - manualOnline, splitOfflineInput))
-        nextOnline += manualOnline
-        nextOffline += manualOffline
-      }
+      const nextOnline = currentOnline + newOnlineCollected
+      const nextOffline = currentOffline + newOfflineCollected
 
       let finalPaymentMode = payMode
       if (nextOnline > 0 && nextOffline > 0) {
@@ -148,13 +160,6 @@ export function CustomersPage() {
         online_amount: nextOnline,
         offline_amount: nextOffline,
         payment_received_date: paymentReceivedDate,
-      })
-
-      await syncInventorySales.mutateAsync({
-        bookingId: target.id,
-        date: paymentReceivedDate,
-        isPaid: newStatus === 'paid' || nextPaid > 0,
-        addOns: [],
       })
     } catch (e) {
       console.warn('Failed to update payment from customers page', e)
@@ -724,14 +729,8 @@ export function CustomersPage() {
                   <div className="mt-3 space-y-2 bg-slate-950/60 p-3 rounded-lg border border-slate-800">
                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                       <span>Enter how much was paid via each method.</span>
-                      <span
-                        className={
-                          splitOnlineInput + splitOfflineInput === payAmountInput
-                            ? 'font-bold text-emerald-400'
-                            : 'font-bold text-amber-400'
-                        }
-                      >
-                        ₹{splitOnlineInput + splitOfflineInput} / ₹{payAmountInput}
+                      <span className="font-bold text-emerald-400">
+                        Total Collected: ₹{splitOnlineInput + splitOfflineInput}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -740,12 +739,12 @@ export function CustomersPage() {
                         <Input
                           type="number"
                           min="0"
-                          max={payAmountInput}
+                          max={payTarget.pending_amount}
                           value={splitOnlineInput}
                           onChange={(e) => {
-                            const val = Math.max(0, Math.min(payAmountInput, parseInt(e.target.value, 10) || 0))
+                            const val = Math.max(0, Math.min(payTarget.pending_amount, parseInt(e.target.value, 10) || 0))
                             setSplitOnlineInput(val)
-                            setSplitOfflineInput(Math.max(0, payAmountInput - val))
+                            setPayAmountInput(val + splitOfflineInput)
                           }}
                           className="bg-slate-900 border-slate-700 text-white text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
@@ -755,12 +754,12 @@ export function CustomersPage() {
                         <Input
                           type="number"
                           min="0"
-                          max={payAmountInput}
+                          max={payTarget.pending_amount}
                           value={splitOfflineInput}
                           onChange={(e) => {
-                            const val = Math.max(0, Math.min(payAmountInput, parseInt(e.target.value, 10) || 0))
+                            const val = Math.max(0, Math.min(payTarget.pending_amount, parseInt(e.target.value, 10) || 0))
                             setSplitOfflineInput(val)
-                            setSplitOnlineInput(Math.max(0, payAmountInput - val))
+                            setPayAmountInput(splitOnlineInput + val)
                           }}
                           className="bg-slate-900 border-slate-700 text-white text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
@@ -779,7 +778,15 @@ export function CustomersPage() {
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={() => setPayAmountInput(Math.max(0, payTarget.pending_amount))}
+                    onClick={() => {
+                      const full = Math.max(0, payTarget.pending_amount)
+                      setPayAmountInput(full)
+                      if (payMode === 'split') {
+                        const half = Math.floor(full / 2)
+                        setSplitOnlineInput(half)
+                        setSplitOfflineInput(full - half)
+                      }
+                    }}
                     className="text-[11px] h-7 border-emerald-700/60 text-emerald-400 hover:bg-emerald-950/40"
                   >
                     Full Pending (₹{payTarget.pending_amount})

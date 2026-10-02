@@ -220,7 +220,12 @@ export function useUpdateInventoryStock() {
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
+      void queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
+      void queryClient.invalidateQueries({ queryKey: ['inventory-sales'] })
+      void queryClient.invalidateQueries({ queryKey: ['inventory-sales-all'] })
+      void queryClient.invalidateQueries({ queryKey: ['inventory-audit'] })
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
+      void queryClient.invalidateQueries({ queryKey: ['monthly-data'] })
     },
   })
 }
@@ -230,32 +235,58 @@ export function useRecordInventorySales() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (sales: Array<{ item_name: string; qty_sold: number; amount: number; booking_id?: string }>) => {
+    mutationFn: async (sales: Array<{
+      item_name: string
+      qty_sold: number
+      amount: number
+      booking_id?: string
+      payment_mode?: 'online' | 'offline' | 'split' | string | null
+      online_amount?: number | null
+      offline_amount?: number | null
+    }>) => {
       const today = new Date().toISOString().split('T')[0]
 
       if (user) {
         try {
-          const rows = sales.map(s => ({
-            user_id: user.id,
-            item_name: s.item_name,
-            qty_sold: s.qty_sold,
-            amount: s.amount,
-            date: today,
-            booking_id: s.booking_id || null
-          }))
+          const rows = sales.map(s => {
+            const payload: Record<string, any> = {
+              user_id: user.id,
+              item_name: s.item_name,
+              qty_sold: s.qty_sold,
+              amount: s.amount,
+              date: today,
+              booking_id: s.booking_id || null,
+            }
+            if (s.payment_mode) payload.payment_mode = s.payment_mode
+            if (s.online_amount !== undefined) payload.online_amount = s.online_amount
+            if (s.offline_amount !== undefined) payload.offline_amount = s.offline_amount
+            return payload
+          })
 
-          await supabase.from('inventory_sales').insert(rows)
+          const { error } = await supabase.from('inventory_sales').insert(rows)
 
-          // Deduct quantities from inventory items
-            const { data: invItems } = await supabase
+          if (error && (error.message?.includes('column') || error.code === 'PGRST204')) {
+            const minRows = sales.map(s => ({
+              user_id: user.id,
+              item_name: s.item_name,
+              qty_sold: s.qty_sold,
+              amount: s.amount,
+              date: today,
+              booking_id: s.booking_id || null,
+            }))
+            await supabase.from('inventory_sales').insert(minRows)
+          }
+
+          // Deduct quantities from inventory items concurrently
+          const { data: invItems } = await supabase
             .from('inventory_items')
             .select('*')
             .eq('user_id', user.id)
 
           if (invItems) {
-            for (const sale of sales) {
+            const updates = sales.map(async (sale) => {
               const matched = invItems.find((i: InventoryItem) => i.name.toLowerCase() === sale.item_name.toLowerCase())
-                if (matched) {
+              if (matched) {
                 const newQty = Math.max(0, matched.quantity - sale.qty_sold)
                 await supabase
                   .from('inventory_items')
@@ -263,7 +294,8 @@ export function useRecordInventorySales() {
                   .eq('id', matched.id)
                   .eq('user_id', user.id)
               }
-            }
+            })
+            await Promise.all(updates)
           }
         } catch (e) {
           console.warn('Supabase sales logging failed, saving locally', e)
@@ -291,16 +323,61 @@ export function useRecordInventorySales() {
           qty_sold: sale.qty_sold,
           amount: sale.amount,
           booking_id: sale.booking_id || null,
+          payment_mode: sale.payment_mode || 'offline',
+          online_amount: sale.online_amount ?? (sale.payment_mode === 'online' ? sale.amount : 0),
+          offline_amount: sale.offline_amount ?? (sale.payment_mode === 'offline' ? sale.amount : 0),
           user_id: user?.id || 'local'
         })
       })
       saveLocalSales(localSales)
     },
+    onMutate: async (sales) => {
+      await queryClient.cancelQueries({ queryKey: ['inventory-items'] })
+      await queryClient.cancelQueries({ queryKey: ['inventory-sales-all'] })
+
+      queryClient.setQueriesData<InventoryItem[]>({ queryKey: ['inventory-items'] }, (old) => {
+        if (!old) return old
+        return old.map((item) => {
+          const s = sales.find((x) => x.item_name.toLowerCase() === item.name.toLowerCase())
+          if (s) {
+            return {
+              ...item,
+              quantity: Math.max(0, item.quantity - s.qty_sold),
+              last_edited: new Date().toISOString(),
+            }
+          }
+          return item
+        })
+      })
+
+      const today = new Date().toISOString().split('T')[0]
+      const newEntries: InventorySale[] = sales.map((s, idx) => ({
+        id: `temp-sale-${Date.now()}-${idx}`,
+        created_at: new Date().toISOString(),
+        item_name: s.item_name,
+        date: today,
+        qty_sold: s.qty_sold,
+        amount: s.amount,
+        booking_id: s.booking_id || null,
+        payment_mode: s.payment_mode || 'offline',
+        online_amount: s.online_amount ?? (s.payment_mode === 'online' ? s.amount : 0),
+        offline_amount: s.offline_amount ?? (s.payment_mode === 'offline' ? s.amount : 0),
+        user_id: user?.id || 'local',
+      }))
+
+      queryClient.setQueriesData<InventorySale[]>({ queryKey: ['inventory-sales-all'] }, (old) => {
+        if (!old) return newEntries
+        return [...newEntries, ...old]
+      })
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
-      queryClient.invalidateQueries({ queryKey: ['inventory-sales'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
-    }
+      void queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
+      void queryClient.invalidateQueries({ queryKey: ['inventory-sales'] })
+      void queryClient.invalidateQueries({ queryKey: ['inventory-sales-all'] })
+      void queryClient.invalidateQueries({ queryKey: ['inventory-audit'] })
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
+      void queryClient.invalidateQueries({ queryKey: ['monthly-data'] })
+    },
   })
 }
 
@@ -693,6 +770,8 @@ export async function exportFullBackupJSON(): Promise<void> {
     'liability_payments',
     'other_income',
     'marketing_campaigns',
+    'slots',
+    'users',
   ]
 
   const backupData: Record<string, any> = {

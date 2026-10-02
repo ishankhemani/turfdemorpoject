@@ -239,22 +239,33 @@ export function useDashboardStats(
         }
       })
 
-      // Include standalone inventory counter sales (not linked to a booking)
+      // Include standalone inventory counter sales (not linked to a booking).
+      // Route each sale into onlineRevenue / offlineRevenue based on payment_mode
+      // so the dashboard online/offline split is accurate for POS counter sales.
       if (invSales && Array.isArray(invSales)) {
         invSales.forEach((sale: any) => {
           if (!sale.booking_id) {
             const qty = Number(sale.qty_sold || 0)
             const amt = Number(sale.amount || 0)
+            const mode = sale.payment_mode || 'offline'
             addOnsRevenue += amt
             bottleSalesQty += qty
             bottleSalesRevenue += amt
-            // Note: these are counted in standaloneInvSalesIn below, not in offlineRevenue
+
+            if (mode === 'split') {
+              onlineRevenue += Number(sale.online_amount || 0)
+              offlineRevenue += Number(sale.offline_amount || 0)
+            } else if (mode === 'online') {
+              onlineRevenue += amt
+            } else {
+              // 'offline' / cash / anything else
+              offlineRevenue += amt
+            }
           }
         })
       }
 
-      const standaloneInvSalesIn = (invSales || []).filter((s: any) => !s.booking_id).reduce((sum: number, s: any) => sum + Number(s.amount || 0), 0)
-      const cashIn = onlineRevenue + offlineRevenue + standaloneInvSalesIn + moneySum((otherIncome || []) as MoneyRow[])
+      const cashIn = onlineRevenue + offlineRevenue + moneySum((otherIncome || []) as MoneyRow[])
       const expensesTotal = moneySum((expenses || []) as MoneyRow[])
       const labourTotal = moneySum((labourPayments || []) as MoneyRow[])
       const liabilityTotal = moneySum((liabilityPayments || []) as MoneyRow[])
@@ -349,12 +360,14 @@ export function useDailyData(daysCount: number = 10, startDateOverride?: string,
 
       const results = await Promise.all(
         dates.map(async (dateKey) => {
-          const [{ data: bookingsByDate }, { data: bookingsByReceiptDate }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }] = await Promise.all([
+          const [{ data: bookingsByDate }, { data: bookingsByReceiptDate }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }, { data: otherIncome }, { data: invSales }] = await Promise.all([
             supabase.from('bookings').select('id, customer_name, mobile_number, area, booking_time, start_time, end_time, amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source, payment_received_date, booking_date, add_ons, user_id, created_at, updated_at').eq('booking_date', dateKey),
             supabase.from('bookings').select('id, customer_name, mobile_number, area, booking_time, start_time, end_time, amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source, payment_received_date, booking_date, add_ons, user_id, created_at, updated_at').eq('payment_received_date', dateKey),
             supabase.from('expenses').select('amount').eq('date', dateKey),
             supabase.from('labour_payments').select('amount').eq('date', dateKey),
             supabase.from('liability_payments').select('amount').eq('date', dateKey),
+            supabase.from('other_income').select('amount').eq('date', dateKey),
+            supabase.from('inventory_sales').select('amount, booking_id').eq('date', dateKey),
           ])
 
           const mergedMap = new Map<string, Booking>()
@@ -387,6 +400,18 @@ export function useDailyData(daysCount: number = 10, startDateOverride?: string,
             }
           })
 
+          // Include standalone inventory counter sales (not linked to a booking) — matches dashboard logic
+          if (invSales && Array.isArray(invSales)) {
+            invSales.forEach((sale: any) => {
+              if (!sale.booking_id) {
+                revenue += Number(sale.amount || 0)
+              }
+            })
+          }
+
+          // Include other income — matches dashboard logic
+          revenue += moneySum((otherIncome || []) as MoneyRow[])
+
           const exp = moneySum((expenses || []) as MoneyRow[]) + moneySum((labourPayments || []) as MoneyRow[]) + moneySum((liabilityPayments || []) as MoneyRow[])
 
           return {
@@ -418,13 +443,14 @@ export function useMonthlyData(year: number = new Date().getFullYear()) {
           const start = toDateKey(new Date(year, month, 1))
           const end = toDateKey(new Date(year, month + 1, 0))
 
-          const [{ data: bookingsByDate }, { data: bookingsByReceiptDate }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }, { data: otherIncome }] = await Promise.all([
+          const [{ data: bookingsByDate }, { data: bookingsByReceiptDate }, { data: expenses }, { data: labourPayments }, { data: liabilityPayments }, { data: otherIncome }, { data: invSales }] = await Promise.all([
             supabase.from('bookings').select('id, customer_name, mobile_number, area, booking_time, start_time, end_time, amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source, payment_received_date, booking_date, add_ons, user_id, created_at, updated_at').gte('booking_date', start).lte('booking_date', end),
             supabase.from('bookings').select('id, customer_name, mobile_number, area, booking_time, start_time, end_time, amount, paid_amount, pending_amount, payment_status, payment_mode, online_amount, offline_amount, transaction_id, source, payment_received_date, booking_date, add_ons, user_id, created_at, updated_at').gte('payment_received_date', start).lte('payment_received_date', end),
             supabase.from('expenses').select('amount').gte('date', start).lte('date', end),
             supabase.from('labour_payments').select('amount').gte('date', start).lte('date', end),
             supabase.from('liability_payments').select('amount').gte('date', start).lte('date', end),
             supabase.from('other_income').select('amount').gte('date', start).lte('date', end),
+            supabase.from('inventory_sales').select('amount, booking_id').gte('date', start).lte('date', end),
           ])
 
           const mergedMap = new Map<string, Booking>()
@@ -457,7 +483,16 @@ export function useMonthlyData(year: number = new Date().getFullYear()) {
             }
           })
 
-          const revenue = bookingRev + moneySum((otherIncome || []) as MoneyRow[])
+          let invRev = 0
+          if (invSales && Array.isArray(invSales)) {
+            invSales.forEach((sale: any) => {
+              if (!sale.booking_id) {
+                invRev += Number(sale.amount || 0)
+              }
+            })
+          }
+
+          const revenue = bookingRev + invRev + moneySum((otherIncome || []) as MoneyRow[])
           const expensesTotal = moneySum((expenses || []) as MoneyRow[]) + moneySum((labourPayments || []) as MoneyRow[]) + moneySum((liabilityPayments || []) as MoneyRow[])
 
           return {
@@ -522,13 +557,18 @@ export function useBookings(date?: string) {
   })
 }
 
-function invalidateBusinessQueries(queryClient: ReturnType<typeof useQueryClient>) {
-  queryClient.invalidateQueries({ queryKey: ['bookings'] })
-  queryClient.invalidateQueries({ queryKey: ['today-bookings'] })
-  queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
-  queryClient.invalidateQueries({ queryKey: ['monthly-data'] })
-  queryClient.invalidateQueries({ queryKey: ['customers'] })
-  queryClient.invalidateQueries({ queryKey: ['area-stats'] })
+export function invalidateBusinessQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  void queryClient.invalidateQueries({ queryKey: ['bookings'] })
+  void queryClient.invalidateQueries({ queryKey: ['today-bookings'] })
+  void queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
+  void queryClient.invalidateQueries({ queryKey: ['monthly-data'] })
+  void queryClient.invalidateQueries({ queryKey: ['customers'] })
+  void queryClient.invalidateQueries({ queryKey: ['pending-payments'] })
+  void queryClient.invalidateQueries({ queryKey: ['area-stats'] })
+  void queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
+  void queryClient.invalidateQueries({ queryKey: ['inventory-sales'] })
+  void queryClient.invalidateQueries({ queryKey: ['inventory-sales-all'] })
+  void queryClient.invalidateQueries({ queryKey: ['inventory-audit'] })
 }
 
 export function useCreateBooking() {
@@ -658,8 +698,37 @@ export function useCreateBooking() {
         }
       }
 
-      await recalculateCustomer(targetUserId, booking.mobile_number)
+      void recalculateCustomer(targetUserId, booking.mobile_number)
       return data
+    },
+    onMutate: async (newBooking) => {
+      await queryClient.cancelQueries({ queryKey: ['bookings'] })
+      const tempId = `temp-${Date.now()}`
+      const optimisticBooking: Booking = {
+        id: tempId,
+        created_at: new Date().toISOString(),
+        customer_name: newBooking.customer_name,
+        mobile_number: newBooking.mobile_number,
+        area: newBooking.area || 'Turf Main Ground',
+        booking_date: newBooking.booking_date,
+        booking_time: newBooking.booking_time,
+        sport: newBooking.sport || 'Turf Sport',
+        amount: newBooking.amount,
+        payment_status: newBooking.payment_status,
+        payment_mode: newBooking.payment_mode || 'offline',
+        paid_amount: newBooking.paid_amount ?? (newBooking.payment_status === 'paid' ? newBooking.amount : 0),
+        pending_amount: newBooking.pending_amount ?? (newBooking.payment_status === 'paid' ? 0 : newBooking.amount),
+        online_amount: newBooking.online_amount ?? 0,
+        offline_amount: newBooking.offline_amount ?? 0,
+        notes: newBooking.notes || null,
+        add_ons: newBooking.add_ons || [],
+        user_id: user?.id || '',
+      } as Booking
+
+      queryClient.setQueriesData<Booking[]>({ queryKey: ['bookings'] }, (old) => {
+        if (!old) return [optimisticBooking]
+        return [optimisticBooking, ...old]
+      })
     },
     onSuccess: () => invalidateBusinessQueries(queryClient),
   })
@@ -676,22 +745,29 @@ export function useUpdateBooking() {
 
       await ensureUserExists(authUser)
 
-      const { data: oldBooking, error: oldError } = await supabase
-        .from('bookings')
-        .select('*')
-        .eq('id', id)
-        .single()
+      if (updates.booking_date || updates.booking_time || updates.area) {
+        let previous: Partial<Booking> = {}
+        const cachedList = queryClient.getQueriesData<Booking[]>({ queryKey: ['bookings'] })
+        for (const [_, list] of cachedList) {
+          const found = list?.find((b) => b.id === id)
+          if (found) {
+            previous = found
+            break
+          }
+        }
 
-      if (oldError && oldError.code !== 'PGRST116') {
-        console.warn('Could not fetch old booking for update', oldError)
+        const nextDate = updates.booking_date || previous.booking_date
+        const nextTime = updates.booking_time || previous.booking_time
+        const nextArea = updates.area || previous.area || 'Turf Main Ground'
+
+        if (
+          (updates.booking_date && updates.booking_date !== previous.booking_date) ||
+          (updates.booking_time && updates.booking_time !== previous.booking_time) ||
+          (updates.area && updates.area !== previous.area)
+        ) {
+          await assertSlotAvailable({ userId: authUser.id, bookingDate: nextDate, bookingTime: nextTime, area: nextArea, ignoreBookingId: id })
+        }
       }
-
-      const previous = (oldBooking || {}) as Booking
-      const nextDate = updates.booking_date || previous.booking_date
-      const nextTime = updates.booking_time || previous.booking_time
-      const nextArea = updates.area || previous.area || 'Turf Main Ground'
-
-      await assertSlotAvailable({ userId: authUser.id, bookingDate: nextDate, bookingTime: nextTime, area: nextArea, ignoreBookingId: id })
 
       let { data, error } = await supabase
         .from('bookings')
@@ -707,7 +783,7 @@ export function useUpdateBooking() {
           error.message?.includes('unique constraint')
         ) {
           throw new Error(
-            `Slot conflict: '${nextTime}' on '${nextArea}' is already booked for ${nextDate}. Please select an available slot.`
+            `Slot conflict: '${updates.booking_time}' on '${updates.area}' is already booked for ${updates.booking_date}. Please select an available slot.`
           )
         }
 
@@ -727,7 +803,6 @@ export function useUpdateBooking() {
         if (updates.amount !== undefined) standardUpdates.amount = updates.amount
         if (updates.payment_status) standardUpdates.payment_status = updates.payment_status
         if (updates.payment_mode !== undefined) standardUpdates.payment_mode = updates.payment_mode
-        // Only include split-amount columns if schema likely has them
         if (!isSchemaErrorUpd) {
           if (updates.online_amount !== undefined) standardUpdates.online_amount = updates.online_amount
           if (updates.offline_amount !== undefined) standardUpdates.offline_amount = updates.offline_amount
@@ -748,10 +823,9 @@ export function useUpdateBooking() {
             fallbackRes.error.message?.includes('unique constraint')
           ) {
             throw new Error(
-              `Slot conflict: '${nextTime}' on '${nextArea}' is already booked for ${nextDate}. Please select an available slot.`
+              `Slot conflict: '${updates.booking_time}' on '${updates.area}' is already booked for ${updates.booking_date}. Please select an available slot.`
             )
           }
-          // If still schema error, strip out more fields and retry
           if (
             fallbackRes.error.message?.includes('schema cache') ||
             fallbackRes.error.message?.includes('column') ||
@@ -779,10 +853,27 @@ export function useUpdateBooking() {
         }
       }
 
-      if (previous.mobile_number) {
-        await recalculateCustomer(authUser.id, previous.mobile_number)
+      if (updates.mobile_number) {
+        void recalculateCustomer(authUser.id, updates.mobile_number)
       }
       return data
+    },
+    onMutate: async (updates) => {
+      await queryClient.cancelQueries({ queryKey: ['bookings'] })
+      await queryClient.cancelQueries({ queryKey: ['pending-payments'] })
+
+      queryClient.setQueriesData<Booking[]>({ queryKey: ['bookings'] }, (old) => {
+        if (!old) return old
+        return old.map((b) => (b.id === updates.id ? { ...b, ...updates } : b))
+      })
+
+      queryClient.setQueriesData<Booking[]>({ queryKey: ['pending-payments'] }, (old) => {
+        if (!old) return old
+        if (updates.payment_status === 'paid' || (updates.pending_amount !== undefined && updates.pending_amount <= 0)) {
+          return old.filter((b) => b.id !== updates.id)
+        }
+        return old.map((b) => (b.id === updates.id ? { ...b, ...updates } : b))
+      })
     },
     onSuccess: () => invalidateBusinessQueries(queryClient),
   })
@@ -807,7 +898,20 @@ export function useDeleteBooking() {
       if (error) throw error
 
       const deleted = booking as { mobile_number: string }
-      await recalculateCustomer(user.id, deleted.mobile_number)
+      void recalculateCustomer(user.id, deleted.mobile_number)
+    },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['bookings'] })
+      await queryClient.cancelQueries({ queryKey: ['pending-payments'] })
+
+      queryClient.setQueriesData<Booking[]>({ queryKey: ['bookings'] }, (old) => {
+        if (!old) return old
+        return old.filter((b) => b.id !== id)
+      })
+      queryClient.setQueriesData<Booking[]>({ queryKey: ['pending-payments'] }, (old) => {
+        if (!old) return old
+        return old.filter((b) => b.id !== id)
+      })
     },
     onSuccess: () => invalidateBusinessQueries(queryClient),
   })

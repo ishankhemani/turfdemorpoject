@@ -47,31 +47,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true
 
+    // Helper: fetch the owner (admin) ID for staff accounts.
+    // Strategy 1 → localStorage cache (fastest — owner must have logged in at
+    //              least once on this device OR manually set).
+    // Strategy 2 → query the `users` table for any user that is NOT the current
+    //              employee. Since there are only 2 users (owner + employee) the
+    //              first non-self result IS the owner.
+    // Strategy 3 → fall back to cached value (may equal currentUserId in the
+    //              rare edge case the owner has never existed in DB yet).
     const fetchSharedOwnerId = async (currentUserId: string, isStaff: boolean): Promise<string> => {
       if (!isStaff) {
+        // Owner logs in → cache their real auth.uid() so employees can read it.
         localStorage.setItem('elite_primary_owner_id', currentUserId)
         return currentUserId
       }
 
-      // If staff is logged in, search for owner ID in database
-      try {
-        const { data: owner } = await supabase
-          .from('users')
-          .select('id')
-          .or('email.ilike.%kulprakash%,role.eq.admin')
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .maybeSingle()
-
-        if (owner?.id) {
-          localStorage.setItem('elite_primary_owner_id', owner.id)
-          return owner.id
-        }
-      } catch (err) {
-        console.warn('Failed to fetch shared owner ID:', err)
+      // ── Strategy 1: localStorage (instant, works after owner has ever logged in) ──
+      const cached = localStorage.getItem('elite_primary_owner_id')
+      if (cached && cached !== currentUserId) {
+        // Good: a different user's ID is cached — that's the owner.
+        return cached
       }
 
-      const cached = localStorage.getItem('elite_primary_owner_id')
+      // ── Strategy 2: DB lookup ─────────────────────────────────────────────────
+      try {
+        // Fetch all users except the current employee (at most 1 row for a 2-user system).
+        const { data: otherUsers } = await supabase
+          .from('users')
+          .select('id, role, email')
+          .neq('id', currentUserId)
+          .limit(10)
+
+        if (otherUsers && otherUsers.length > 0) {
+          // Prefer explicit role=admin, then any non-staff email, then first result.
+          const owner =
+            otherUsers.find((u) => u.role === 'admin') ||
+            otherUsers.find(
+              (u) =>
+                !u.email?.toLowerCase().includes('abc') &&
+                !u.email?.toLowerCase().includes('staff')
+            ) ||
+            otherUsers[0]
+
+          if (owner?.id) {
+            localStorage.setItem('elite_primary_owner_id', owner.id)
+            return owner.id
+          }
+        }
+      } catch (err) {
+        console.warn('fetchSharedOwnerId DB lookup failed:', err)
+      }
+
+      // ── Strategy 3: use whatever is cached, even if it equals currentUserId ──
       return cached || currentUserId
     }
 
@@ -229,10 +256,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let ownerId = data.user.id
 
         if (!isStaff) {
+          // Owner: cache their ID for employee use
           localStorage.setItem('elite_primary_owner_id', data.user.id)
         } else {
+          // Employee: find owner with the same multi-strategy lookup
           const cached = localStorage.getItem('elite_primary_owner_id')
-          ownerId = cached || data.user.id
+          if (cached && cached !== data.user.id) {
+            ownerId = cached
+          } else {
+            try {
+              const { data: otherUsers } = await supabase
+                .from('users')
+                .select('id, role, email')
+                .neq('id', data.user.id)
+                .limit(10)
+
+              if (otherUsers && otherUsers.length > 0) {
+                const owner =
+                  otherUsers.find((u) => u.role === 'admin') ||
+                  otherUsers.find(
+                    (u) =>
+                      !u.email?.toLowerCase().includes('abc') &&
+                      !u.email?.toLowerCase().includes('staff')
+                  ) ||
+                  otherUsers[0]
+
+                if (owner?.id) {
+                  ownerId = owner.id
+                  localStorage.setItem('elite_primary_owner_id', owner.id)
+                } else {
+                  ownerId = cached || data.user.id
+                }
+              } else {
+                ownerId = cached || data.user.id
+              }
+            } catch {
+              ownerId = cached || data.user.id
+            }
+          }
         }
 
         setState((prev) => ({

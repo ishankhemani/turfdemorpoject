@@ -66,6 +66,9 @@ export interface InventorySale extends BaseEntity {
   qty_sold: number
   amount: number
   booking_id?: string | null
+  payment_mode?: 'online' | 'offline' | 'split' | string | null
+  online_amount?: number | null
+  offline_amount?: number | null
   user_id: string
 }
 

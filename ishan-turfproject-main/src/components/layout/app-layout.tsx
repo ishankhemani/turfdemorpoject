@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar } from './sidebar'
 import { Navbar } from './navbar'
+import { useAdminRealtimeSync } from '@/hooks/use-admin-realtime-sync'
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -16,6 +17,7 @@ const pageTitles: Record<string, string> = {
 }
 
 export function AppLayout() {
+  useAdminRealtimeSync() // ← live cross-device sync for both owner and employee
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()

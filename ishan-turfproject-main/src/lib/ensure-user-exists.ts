@@ -2,6 +2,8 @@ import { supabase } from '@/lib/supabase'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import type { User } from '@/types/database'
 
+const verifiedUsers = new Set<string>()
+
 export async function ensureUserExists(
   userIdOrUser: string | SupabaseUser,
   email?: string,
@@ -9,6 +11,7 @@ export async function ensureUserExists(
 ): Promise<User | null> {
   const userId = typeof userIdOrUser === 'string' ? userIdOrUser : userIdOrUser.id
   if (!userId) return null
+  if (verifiedUsers.has(userId)) return null
 
   const userEmail = (
     email ||
@@ -38,6 +41,7 @@ export async function ensureUserExists(
         await supabase.from('users').update({ role: userRole }).eq('id', userId)
         profile.role = userRole
       }
+      verifiedUsers.add(userId)
       return profile as User
     }
 
@@ -58,6 +62,7 @@ export async function ensureUserExists(
       console.warn('ensureUserExists upsert warning:', error.message)
     }
 
+    verifiedUsers.add(userId)
     return (upserted as User) || (newProfile as User)
   } catch (err) {
     console.warn('ensureUserExists error:', err)

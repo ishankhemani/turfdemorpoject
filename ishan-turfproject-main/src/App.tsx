@@ -21,10 +21,10 @@ const InventoryPage = lazy(() => import('@/pages/inventory-page').then(m => ({ d
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5,
+      staleTime: 0,
       gcTime: 1000 * 60 * 30,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
       retry: 1,
     },
   },

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PageLoadingState } from '@/components/common/loading'
-import { Download, Calendar, IndianRupee, Users, TrendingUp, Wallet, Clock, FileSpreadsheet } from 'lucide-react'
+import { Download, Calendar, IndianRupee, Users, TrendingUp, FileSpreadsheet } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 function distributeSplitAmounts(onAmt: number, offAmt: number, paidAmount: number): [number, number] {
@@ -768,52 +768,6 @@ export function ReportsPage() {
               <div className="min-w-0">
                 <p className="text-xs text-slate-400">Total Bookings</p>
                 <p className="text-lg sm:text-2xl font-bold text-white">{activeBookings.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Payment Mode Breakdown */}
-      <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
-        <Card className="bg-slate-900/80 border-blue-900/40">
-          <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-950/80 border border-blue-800 text-blue-400 shrink-0">
-                <TrendingUp className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs text-slate-400">Online Revenue (UPI/Card)</p>
-                <p className="text-xl font-bold text-blue-400 truncate">{formatCurrency(onlineRevenue)}</p>
-                <p className="text-[10px] text-slate-500">Paid via digital</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-slate-900/80 border-amber-900/40">
-          <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-950/80 border border-amber-800 text-amber-400 shrink-0">
-                <Wallet className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs text-slate-400">Cash / Offline Revenue</p>
-                <p className="text-xl font-bold text-amber-400 truncate">{formatCurrency(offlineRevenue)}</p>
-                <p className="text-[10px] text-slate-500">Paid in cash</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-slate-900/80 border-red-900/40">
-          <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-950/80 border border-red-800 text-red-400 shrink-0">
-                <Clock className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs text-slate-400">Pending (Unpaid)</p>
-                <p className="text-xl font-bold text-red-400 truncate">{formatCurrency(pendingAmount)}</p>
-                <p className="text-[10px] text-slate-500">{pendingCount} booking(s) unpaid</p>
               </div>
             </div>
           </CardContent>

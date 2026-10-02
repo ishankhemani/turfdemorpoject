@@ -272,10 +272,10 @@ export function useDashboardStats(
       const cashOut = expensesTotal + labourTotal + liabilityTotal
 
       const today = toDateKey(new Date())
-      const todayBookings = normalizedBookings.filter((booking) => {
-        const receiptDate = booking.payment_received_date || booking.booking_date
-        return receiptDate === today || booking.booking_date === today
-      })
+      const todayBookings = normalizedBookings.filter((booking) => booking.booking_date === today)
+      const periodBookings = normalizedBookings.filter(
+        (booking) => booking.booking_date >= start && booking.booking_date <= end
+      )
       const currentTimeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
       const sortedTodayBookings = [...todayBookings].sort((a, b) => a.booking_time.localeCompare(b.booking_time))
       const currentBooking = [...sortedTodayBookings].reverse().find((booking) => booking.booking_time <= currentTimeStr) || null
@@ -283,7 +283,7 @@ export function useDashboardStats(
       const uniqueOccupiedSlots = new Set(todayBookings.map((booking) => `${booking.area}-${booking.booking_time}`)).size
 
       return {
-        totalBookings: normalizedBookings.length,
+        totalBookings: periodBookings.length,
         cashIn,
         cashOut,
         profit: cashIn - cashOut,
@@ -419,7 +419,7 @@ export function useDailyData(daysCount: number = 10, startDateOverride?: string,
             revenue,
             expenses: exp,
             profit: revenue - exp,
-            totalBookings: bookingsList.length,
+            totalBookings: bookingsList.filter((b) => b.booking_date === dateKey).length,
           }
         })
       )

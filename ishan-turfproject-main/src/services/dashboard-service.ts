@@ -810,6 +810,9 @@ export function useUpdateBooking() {
         if (updates.amount !== undefined) standardUpdates.amount = updates.amount
         if (updates.payment_status) standardUpdates.payment_status = updates.payment_status
         if (updates.payment_mode !== undefined) standardUpdates.payment_mode = updates.payment_mode
+        if (updates.paid_amount !== undefined) standardUpdates.paid_amount = updates.paid_amount
+        if (updates.pending_amount !== undefined) standardUpdates.pending_amount = updates.pending_amount
+        if (updates.payment_received_date !== undefined) standardUpdates.payment_received_date = updates.payment_received_date
         if (!isSchemaErrorUpd) {
           if (updates.online_amount !== undefined) standardUpdates.online_amount = updates.online_amount
           if (updates.offline_amount !== undefined) standardUpdates.offline_amount = updates.offline_amount
@@ -848,6 +851,9 @@ export function useUpdateBooking() {
             if (updates.amount !== undefined) minUpdates.amount = updates.amount
             if (updates.payment_status) minUpdates.payment_status = updates.payment_status
             if (updates.payment_mode !== undefined) minUpdates.payment_mode = updates.payment_mode
+            if (updates.paid_amount !== undefined) minUpdates.paid_amount = updates.paid_amount
+            if (updates.pending_amount !== undefined) minUpdates.pending_amount = updates.pending_amount
+            if (updates.payment_received_date !== undefined) minUpdates.payment_received_date = updates.payment_received_date
             if (updates.notes !== undefined) minUpdates.notes = updates.notes
             const minRes = await supabase.from('bookings').update(minUpdates).eq('id', id).select().single()
             if (minRes.error) throw new Error(minRes.error.message || 'Database error updating booking')

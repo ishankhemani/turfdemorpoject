@@ -109,19 +109,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (mounted) {
           if (session?.user) {
-            const profile = await ensureUserExists(session.user)
-            const userEmail = (session.user.email || profile?.email || '').toLowerCase()
-            const isStaff = userEmail.includes('abc') || userEmail.includes('staff') || profile?.role === 'staff'
-            const ownerId = await fetchSharedOwnerId(session.user.id, isStaff)
+            const userEmail = (session.user.email || '').toLowerCase()
+            const isStaff = userEmail.includes('abc') || userEmail.includes('staff')
+            const cachedOwnerId = localStorage.getItem('elite_primary_owner_id') || session.user.id
 
             setState({
               rawUser: session.user,
-              profile,
+              profile: null,
               session,
               loading: false,
               error: null,
-              sharedOwnerId: ownerId,
+              sharedOwnerId: cachedOwnerId,
             })
+
+            // Run user verification and shared owner ID lookup concurrently in background
+            void (async () => {
+              const profile = await ensureUserExists(session.user)
+              const finalIsStaff = isStaff || profile?.role === 'staff'
+              const ownerId = await fetchSharedOwnerId(session.user.id, finalIsStaff)
+              if (mounted) {
+                setState((prev) => ({
+                  ...prev,
+                  profile,
+                  sharedOwnerId: ownerId,
+                }))
+              }
+            })()
           } else {
             setState({
               rawUser: null,

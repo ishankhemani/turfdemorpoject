@@ -273,6 +273,9 @@ export function useRecordInventorySales() {
               amount: s.amount,
               date: today,
               booking_id: s.booking_id || null,
+              payment_mode: s.payment_mode || 'offline',
+              online_amount: s.online_amount ?? (s.payment_mode === 'online' ? s.amount : 0),
+              offline_amount: s.offline_amount ?? (s.payment_mode === 'offline' ? s.amount : 0),
             }))
             await supabase.from('inventory_sales').insert(minRows)
           }
@@ -497,11 +500,17 @@ export function useSyncBookingInventorySales() {
       date,
       isPaid,
       addOns,
+      payment_mode,
+      online_amount,
+      offline_amount,
     }: {
       bookingId: string
       date: string
       isPaid: boolean
       addOns: Array<{ name: string; qty: number; price: number }>
+      payment_mode?: 'online' | 'offline' | 'split' | string | null
+      online_amount?: number | null
+      offline_amount?: number | null
     }) => {
       if (user) {
         try {
@@ -543,14 +552,22 @@ export function useSyncBookingInventorySales() {
           // 2. Always deduct stock and log sale for active add-ons (even if pending) to keep inventory and stock logs accurate.
           const activeAddOns = addOns.filter((a) => a.qty > 0)
           if (activeAddOns.length > 0) {
-            const rows = activeAddOns.map((a) => ({
-              user_id: user.id,
-              item_name: a.name,
-              qty_sold: a.qty,
-              amount: a.price * a.qty,
-              date,
-              booking_id: bookingId,
-            }))
+            const rows = activeAddOns.map((a) => {
+              const itemTotal = a.price * a.qty
+              const mode = payment_mode || 'offline'
+              const payload: Record<string, any> = {
+                user_id: user.id,
+                item_name: a.name,
+                qty_sold: a.qty,
+                amount: itemTotal,
+                date,
+                booking_id: bookingId,
+                payment_mode: mode,
+              }
+              if (online_amount !== undefined) payload.online_amount = online_amount
+              if (offline_amount !== undefined) payload.offline_amount = offline_amount
+              return payload
+            })
             await supabase.from('inventory_sales').insert(rows)
 
             // Always deduct stock quantity

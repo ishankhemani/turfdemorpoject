@@ -164,8 +164,9 @@ export function useDashboardStats(
         end = toDateKey(now)
       } else if (dateFilter === 'month') {
         const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0)
         start = toDateKey(firstDay)
-        end = toDateKey(now)
+        end = toDateKey(lastDay)
       } else {
         start = customStartDate || toDateKey(now)
         end = customEndDate || customStartDate || toDateKey(now)
@@ -633,6 +634,8 @@ export function useCreateBooking() {
         console.warn('Full payload insert failed, trying standard payload', error.message)
         const effectiveMode = booking.payment_mode || (booking.transaction_id || booking.source === 'website' ? 'online' : 'offline')
         const totalAmt = Number(booking.amount || 0)
+        const calcPaid = booking.paid_amount ?? (booking.payment_status === 'paid' ? totalAmt : 0)
+        const calcPending = booking.pending_amount ?? (booking.payment_status === 'paid' ? 0 : totalAmt - calcPaid)
 
         const standardPayload: Record<string, any> = {
           customer_name: booking.customer_name,
@@ -644,6 +647,8 @@ export function useCreateBooking() {
           amount: booking.amount,
           payment_status: booking.payment_status,
           payment_mode: effectiveMode,
+          paid_amount: calcPaid,
+          pending_amount: calcPending,
           notes: booking.notes || null,
           user_id: targetUserId,
         }
@@ -685,6 +690,8 @@ export function useCreateBooking() {
               amount: booking.amount,
               payment_status: booking.payment_status,
               payment_mode: effectiveMode,
+              paid_amount: calcPaid,
+              pending_amount: calcPending,
               user_id: targetUserId,
             }
             const minRes = await supabase.from('bookings').insert(minPayload).select().single()

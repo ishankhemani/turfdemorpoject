@@ -173,11 +173,9 @@ export function usePendingPayments() {
       // Filter bookings with active pending balance
       const pendingBookingsList = rawBookings.filter((b) => {
         const totalAmt = Number(b.amount || 0)
-        let pendingAmt = 0
-        if (b.pending_amount !== undefined && b.pending_amount !== null) {
-          pendingAmt = Number(b.pending_amount)
-        } else if (b.payment_status === 'pending') {
-          const paidAmt = Number(b.paid_amount || 0)
+        const paidAmt = Number(b.paid_amount ?? (b.payment_status === 'paid' ? totalAmt : 0))
+        let pendingAmt = Number(b.pending_amount ?? (b.payment_status === 'paid' ? 0 : totalAmt - paidAmt))
+        if (b.payment_status === 'pending' && pendingAmt <= 0) {
           pendingAmt = Math.max(0, totalAmt - paidAmt)
         }
         return pendingAmt > 0 || b.payment_status === 'pending'
@@ -189,17 +187,11 @@ export function usePendingPayments() {
         const phone = (b.mobile_number || '').trim()
         if (!phone) return
         const totalAmt = Number(b.amount || 0)
-        let paidAmt = 0
-        if (b.paid_amount !== undefined && b.paid_amount !== null) {
-          paidAmt = Number(b.paid_amount)
-        } else if (b.payment_status === 'paid') {
-          paidAmt = totalAmt
-        }
+        let paidAmt = Number(b.paid_amount ?? (b.payment_status === 'paid' ? totalAmt : 0))
+        let pendingAmt = Number(b.pending_amount ?? (b.payment_status === 'paid' ? 0 : totalAmt - paidAmt))
 
-        let pendingAmt = 0
-        if (b.pending_amount !== undefined && b.pending_amount !== null) {
-          pendingAmt = Number(b.pending_amount)
-        } else {
+        // If payment status is pending but stored pending_amount is 0 or empty, recalculate from amount - paidAmt
+        if (b.payment_status === 'pending' && pendingAmt <= 0) {
           pendingAmt = Math.max(0, totalAmt - paidAmt)
         }
 
